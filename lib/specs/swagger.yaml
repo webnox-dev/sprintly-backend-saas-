@@ -1,0 +1,2938 @@
+openapi: 3.0.0
+info:
+  title: Webnox Sprintly Admin Backend API
+  description: |
+    REST API for Webnox Sprintly Admin Dashboard.
+    
+    **Authentication:**
+    Most endpoints require a valid JWT token. 
+    1. Login via `/auth/login` (Admin) or `/auth/employee-login` (Employee).
+    2. Click the **Authorize** button below and enter your token (with or without `Bearer ` prefix).
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api
+    description: Local Development Server
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            details:
+              type: object
+    
+    # Auth Schemas
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: admin@webnox.com }
+        password: { type: string, format: password, example: password123 }
+        role: { type: string, example: Admin }
+    
+    EmployeeLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: employee@webnox.com }
+        password: { type: string, format: password, example: password123 }
+
+    # Employee Schema
+    Employee:
+      type: object
+      properties:
+        employeeId: { type: string }
+        employeeName: { type: string }
+        employeeEmail: { type: string }
+        employeeRole: { type: string }
+        designation: { type: string }
+        status: { type: boolean }
+
+    # Admin Schema
+    Admin:
+      type: object
+      properties:
+        adminId: { type: string }
+        adminName: { type: string }
+        adminPersonalEmail: { type: string }
+        adminRole: { type: string }
+        isActive: { type: boolean }
+
+    # Attendance Schema
+    Attendance:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        date: { type: string, format: date }
+        punchInTime: { type: string, format: date-time }
+        punchOutTime: { type: string, format: date-time }
+        status: { type: string }
+
+    # Project Schema
+    Project:
+      type: object
+      properties:
+        id: { type: string }
+        projectName: { type: string }
+        projectDescription: { type: string }
+        status: { type: string, enum: [NOT_STARTED, IN_PROGRESS, ON_HOLD, COMPLETED] }
+        priorityLevel: { type: string, enum: [LOW, MEDIUM, HIGH, URGENT] }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+
+    # Task Card Schema
+    TaskCard:
+      type: object
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        taskName: { type: string }
+        taskDescription: { type: string }
+        taskType: { type: string }
+        priorityLevel: { type: string, enum: [High, Medium, Low] }
+        workflowStatus: { type: string }
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
+        assignedEmployeeIds: 
+          type: array
+          items: { type: string }
+    
+    # Leave Schema
+    Leave:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        leaveType: { type: string }
+        leaveFromDate: { type: string, format: date }
+        leaveToDate: { type: string, format: date }
+        totalLeaveDays: { type: number }
+        leaveRemarks: { type: string }
+        leaveStatus: { type: integer, description: "0: Pending, 1: Approved, 2: Rejected" }
+        isPaidLeave: { type: boolean }
+        isHalfDay: { type: boolean }
+
+    # Permission Schema
+    Permission:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        permissionDate: { type: string, format: date }
+        permissionFromTime: { type: string }
+        permissionToTime: { type: string }
+        permissionRemarks: { type: string }
+        permissionStatus: { type: integer, description: "0: Pending, 1: Approved, 2: Rejected" }
+
+    # WFH Schema
+    WFHRequest:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        reason: { type: string }
+        status: { type: integer, description: "0: Pending, 1: Approved, 2: Rejected" }
+
+    # Announcement Schema
+    Announcement:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        message: { type: string }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    # Team Card Schema
+    TeamCard:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        cardType: { type: string, enum: [Meeting, KT, Learning, R&D] }
+        status: { type: integer, description: "1: Active, 0: Inactive" }
+    
+    # Office Location Schema
+    OfficeLocation:
+      type: object
+      required: [locationName, address, latitude, longitude]
+      properties:
+        locationName: { type: string }
+        address: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        radiusMeters: { type: integer, default: 100 }
+        isActive: { type: boolean, default: true }
+    
+    # Dashboard Schemas
+    CalendarEvent:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        events: 
+          type: array
+          items: { type: object }
+
+    Birthday:
+      type: object
+      properties:
+        employeeId: { type: string }
+        name: { type: string }
+        date: { type: string, format: date }
+        image: { type: string }
+
+    TaskAnalytics:
+      type: object
+      properties:
+        total: { type: integer }
+        completed: { type: integer }
+        pending: { type: integer }
+        inProgress: { type: integer }
+
+    # Report Schema
+    Report:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        date: { type: string, format: date }
+        content: { type: string }
+        status: { type: string }
+
+    # Chat Schemas
+    Conversation:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [direct, group] }
+        name: { type: string }
+        participants: 
+          type: array
+          items: { type: object }
+        lastMessage: { type: object }
+
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        senderId: { type: string }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }
+        isRead: { type: boolean }
+
+    # Calendar Meeting Schema
+    CalendarMeeting:
+      type: object
+      properties:
+        id: { type: string }
+        meetingName: { type: string }
+        meetingVenue: { type: string }
+        meetingDate: { type: string, format: date }
+        meetingStartTime: { type: string }
+        meetingEndTime: { type: string }
+        hostId: { type: string }
+        participantIds: 
+          type: array
+          items: { type: string }
+        status: { type: string }
+
+    # Todo Schema
+    Todo:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        dueDate: { type: string, format: date }
+        priority: { type: string, enum: [Low, Medium, High] }
+        status: { type: string, enum: [Pending, Completed] }
+        assignedTo: { type: string }
+
+    # Asset Schema
+    Asset:
+      type: object
+      properties:
+        id: { type: string }
+        assetName: { type: string }
+        assetType: { type: string }
+        assetStatus: { type: string, enum: [Available, InUse, Maintenance, Retired] }
+        purchaseDate: { type: string, format: date }
+        usedByEmployeeId: { type: string }
+
+    # Expense Schema
+    Expense:
+      type: object
+      properties:
+        id: { type: string }
+        expenseTitle: { type: string }
+        amount: { type: number }
+        expenseDate: { type: string, format: date }
+        expenseType: { type: string }
+        paymentMethod: { type: string }
+        status: { type: string }
+
+    # Company Holiday Schema
+    CompanyHoliday:
+      type: object
+      properties:
+        id: { type: string }
+        holidayName: { type: string }
+        holidayDate: { type: string, format: date }
+        holidayType: { type: string }
+        description: { type: string }
+
+    # Time Tracking Record Schema
+    TimeTrackingRecord:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        taskId: { type: string }
+        taskName: { type: string }
+        clockInTime: { type: string, format: date-time }
+        clockOutTime: { type: string, format: date-time }
+        duration: { type: string }
+
+    # Role Schema
+    Role:
+      type: object
+      properties:
+        id: { type: string }
+        roleName: { type: string }
+        description: { type: string }
+        permissions: { type: array, items: { type: string } }
+
+    # Version Release Schema
+    VersionRelease:
+      type: object
+      properties:
+        id: { type: string }
+        version: { type: string }
+        releaseNotes: { type: string }
+        releaseDate: { type: string, format: date }
+
+    # Future Plan Schema
+    FuturePlan:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        targetDate: { type: string, format: date }
+
+    # Face Enrollment Schema
+    FaceEnrollment:
+      type: object
+      properties:
+        employee_id: { type: string }
+        embedding: { type: string }
+        fingerprint_template: { type: string }
+        department: { type: string }
+        enrolled_by: { type: string }
+
+    # Leave Policy Schema
+    LeavePolicy:
+      type: object
+      properties:
+        id: { type: string }
+        policyName: { type: string }
+        totalLeaves: { type: integer }
+        carryForward: { type: boolean }
+
+    # Project Document Schema
+    ProjectDocument:
+      type: object
+      properties:
+        id: { type: string }
+        fileName: { type: string }
+        fileUrl: { type: string }
+        uploadedBy: { type: string }
+        uploadedAt: { type: string, format: date-time }
+
+    # Project Milestone Schema
+    ProjectMilestone:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        description: { type: string }
+        dueDate: { type: string, format: date }
+        status: { type: string, enum: [Pending, Completed] }
+
+    # Client Review Schema
+    ClientReview:
+      type: object
+      properties:
+        id: { type: string }
+        reviewerName: { type: string }
+        reviewDate: { type: string, format: date }
+        rating: { type: integer }
+        comments: { type: string }
+
+    # Project Discontinuation Schema
+    ProjectDiscontinuation:
+      type: object
+      properties:
+        id: { type: string }
+        reason: { type: string }
+        discontinuedBy: { type: string }
+        discontinuedAt: { type: string, format: date-time }
+
+    # Employee Document Schema
+    EmployeeDocument:
+      type: object
+      properties:
+        id: { type: string }
+        documentType: { type: string }
+        documentUrl: { type: string }
+        status: { type: string, enum: [Pending, Approved, Rejected] }
+        uploadedAt: { type: string, format: date-time }
+
+    # Task Card Request Schema
+    TaskCardRequest:
+      type: object
+      properties:
+        id: { type: string }
+        employeeId: { type: string }
+        projectId: { type: string }
+        taskName: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [Pending, Approved, Rejected] }
+        requestedAt: { type: string, format: date-time }
+
+    # Home Overview Request
+    HomeOverviewRequest:
+      type: object
+      required: [month, year]
+      properties:
+        month: { type: integer }
+        year: { type: integer }
+        date: { type: string, format: date }
+
+    # Monthly Events Request
+    MonthlyEventsRequest:
+      type: object
+      required: [month, year]
+      properties:
+        month: { type: integer }
+        year: { type: integer }
+
+    # Date Details Request
+    DateDetailsRequest:
+      type: object
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+
+    # Notification Schema
+    Notification:
+      type: object
+      properties:
+        id: { type: string }
+        recipientId: { type: string }
+        title: { type: string }
+        body: { type: string }
+        type: { type: string }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    # Employee Tracker Summary
+    EmployeeTrackerSummary:
+      type: object
+      properties:
+        totalEmployees: { type: integer }
+        activeEmployees: { type: integer }
+        present: { type: integer }
+        absent: { type: integer }
+        late: { type: integer }
+        onLeave: { type: integer }
+        wfh: { type: integer }
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Authentication
+    description: Public endpoints for login and token verification
+  - name: Admin Management
+    description: Endpoints for managing Admin users
+  - name: Employee Management
+    description: Endpoints for managing Employees
+  - name: Attendance
+    description: Attendance tracking and reporting
+  - name: Projects
+    description: Project management endpoints
+  - name: Task Cards - Admin
+    description: Admin endpoints for Task Cards
+  - name: Task Cards - Employee
+    description: Employee endpoints for Task Cards
+  - name: Leave Management
+    description: Leave requests and approvals
+  - name: Permission Management
+    description: Time-off permission requests
+  - name: WFH Management
+    description: Work From Home requests
+  - name: Announcements
+    description: Company-wide announcements
+  - name: Team Cards - Admin
+    description: Admin endpoints for Team Cards (KT, Meeting, etc.)
+  - name: Team Cards - Employee
+    description: Employee endpoints for Team Cards
+  - name: Office Locations
+    description: Manage office locations for geofencing
+
+
+
+paths:
+  # ===========================
+  # AUTHENTICATION
+  # ===========================
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Admin Login
+      description: Authenticate an admin user.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /auth/employee-login:
+    post:
+      tags: [Authentication]
+      summary: Employee Login
+      description: Authenticate an employee user.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployeeLoginRequest'
+      responses:
+        '200':
+          description: OK
+
+  /auth/verify-otp:
+    post:
+      tags: [Authentication]
+      summary: Verify OTP
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, otp]
+              properties:
+                email: { type: string }
+                otp: { type: string }
+                role: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout
+      responses:
+        '200': { description: Logout successful }
+
+  # ===========================
+  # ADMIN MANAGEMENT
+  # ===========================
+  /admins:
+    get:
+      tags: [Admin Management]
+      summary: Get All Admins
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+      responses:
+        '200':
+          description: List of admins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    
+    post:
+      tags: [Admin Management]
+      summary: Create New Admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Admin'
+      responses:
+        '201': { description: Admin created }
+
+  /admins/get-by-id:
+    post:
+      tags: [Admin Management]
+      summary: Get Admin by ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [adminId]
+              properties:
+                adminId: { type: string }
+      responses:
+        '200': { description: Admin details }
+
+  /admins/{adminId}:
+    put:
+      tags: [Admin Management]
+      summary: Update Admin
+      parameters:
+        - { name: adminId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Admin'
+      responses:
+        '200': { description: Admin updated }
+    
+    delete:
+      tags: [Admin Management]
+      summary: Delete Admin
+      parameters:
+        - { name: adminId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Admin deleted }
+
+  /admins/updateAdminStatusById:
+    put:
+      tags: [Admin Management]
+      summary: Update Admin Status
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [admin_id, is_active]
+              properties:
+                admin_id: { type: string }
+                is_active: { type: boolean }
+      responses:
+        '200': { description: Status updated }
+
+
+
+  # ===========================
+  # ATTENDANCE
+  # ===========================
+  /attendance:
+    get:
+      tags: [Attendance]
+      summary: Get Attendance Records
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+        - { name: employee_id, in: query, schema: { type: string } }
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Attendance]
+      summary: Create Manual Attendance
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Attendance'
+      responses:
+        '201': { description: Created }
+
+  /attendance/today:
+    get:
+      tags: [Attendance]
+      summary: Get Today's Attendance
+      responses:
+        '200': { description: OK }
+
+  /attendance/punch-in:
+    post:
+      tags: [Attendance]
+      summary: Punch In
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                employee_id: { type: string }
+                lat: { type: number }
+                long: { type: number }
+      responses:
+        '201': { description: Punched In }
+
+  /attendance/{id}/punch-out:
+    put:
+      tags: [Attendance]
+      summary: Punch Out
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Punched Out }
+
+  /attendance/employee/{employeeId}/summary:
+    get:
+      tags: [Attendance]
+      summary: Get Employee Attendance Summary
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: string } }
+        - { name: from_date, in: query, schema: { type: string, format: date } }
+        - { name: to_date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # PROJECTS
+  # ===========================
+  /projects:
+    get:
+      tags: [Projects]
+      summary: Get All Projects
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Projects]
+      summary: Create Project
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Project'
+      responses:
+        '201': { description: Created }
+
+  /projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get Project by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Projects]
+      summary: Update Project
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Project'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Projects]
+      summary: Delete Project
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /projects/statistics:
+    get:
+      tags: [Projects]
+      summary: Get Project Statistics
+      responses:
+        '200': { description: OK }
+
+  /projects/{id}/team-members:
+    post:
+      tags: [Projects]
+      summary: Add Team Member
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member_id]
+              properties:
+                member_id: { type: string }
+      responses:
+        '200': { description: Member added }
+
+  # ===========================
+  # TASK CARDS - ADMIN
+  # ===========================
+  /admin/task-cards:
+    get:
+      tags: [Task Cards - Admin]
+      summary: Get All Task Cards (Admin)
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+        - { name: project_id, in: query, schema: { type: string } }
+        - { name: employee_id, in: query, schema: { type: string } }
+        - { name: workflow_status, in: query, schema: { type: string } }
+        - { name: priority_level, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Task Cards - Admin]
+      summary: Create Task Card
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCard'
+      responses:
+        '201': { description: Created }
+
+  /admin/task-cards/{taskId}:
+    get:
+      tags: [Task Cards - Admin]
+      summary: Get Task Card by ID
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+    put:
+      tags: [Task Cards - Admin]
+      summary: Update Task Card
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCard'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Task Cards - Admin]
+      summary: Delete Task Card
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /admin/task-cards/{taskId}/duplicate:
+    post:
+      tags: [Task Cards - Admin]
+      summary: Duplicate Task Card
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_ids]
+              properties:
+                employee_ids: { type: array, items: { type: string } }
+      responses:
+        '201': { description: Duplicated }
+
+  /admin/task-cards/{taskId}/reassign:
+    put:
+      tags: [Task Cards - Admin]
+      summary: Reassign Task Card
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_employee_id, reason]
+              properties:
+                new_employee_id: { type: string }
+                reason: { type: string }
+      responses:
+        '200': { description: Reassigned }
+
+  # ===========================
+  # TASK CARDS - EMPLOYEE
+  # ===========================
+  /employee/task-cards:
+    get:
+      tags: [Task Cards - Employee]
+      summary: Get My Task Cards
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /employee/task-cards/{taskId}/decision:
+    patch:
+      tags: [Task Cards - Employee]
+      summary: Accept/Reject Task
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, status]
+              properties:
+                employee_id: { type: string }
+                status: { type: integer, description: "1: Accept, 2: Reject" }
+                reason: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /employee/task-cards/{taskId}/work-status:
+    patch:
+      tags: [Task Cards - Employee]
+      summary: Update Work Status (Start/Pause/Complete)
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, employee_task_status]
+              properties:
+                employee_id: { type: string }
+                employee_task_status: { type: integer, description: "0: Pending, 1: InProgress, 2: Pause, 3: Completed" }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # LEAVE MANAGEMENT
+  # ===========================
+  /leave:
+    get:
+      tags: [Leave Management]
+      summary: Get All Leaves
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: integer } }
+        - { name: employee_id, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Leave Management]
+      summary: Create Leave Request
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Leave'
+      responses:
+        '201': { description: Created }
+
+  /leave/{id}:
+    get:
+      tags: [Leave Management]
+      summary: Get Leave by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+    put:
+      tags: [Leave Management]
+      summary: Update Leave Request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Leave'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Leave Management]
+      summary: Delete Leave
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /leave/{id}/approve:
+    put:
+      tags: [Leave Management]
+      summary: Approve Leave
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved_by]
+              properties:
+                approved_by: { type: string }
+                remarks: { type: string }
+      responses:
+        '200': { description: Approved }
+
+  /leave/{id}/reject:
+    put:
+      tags: [Leave Management]
+      summary: Reject Leave
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rejected_by]
+              properties:
+                rejected_by: { type: string }
+                remarks: { type: string }
+      responses:
+        '200': { description: Rejected }
+
+  /leave/employee/{employeeId}:
+    get:
+      tags: [Leave Management]
+      summary: Get Employee Leaves
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # PERMISSION MANAGEMENT
+  # ===========================
+  /permissions:
+    get:
+      tags: [Permission Management]
+      summary: Get All Permissions
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: employee_id, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Permission Management]
+      summary: Create Permission Request
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Permission'
+      responses:
+        '201': { description: Created }
+
+  /permissions/{id}:
+    get:
+      tags: [Permission Management]
+      summary: Get Permission by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+    put:
+      tags: [Permission Management]
+      summary: Update Permission Request
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Permission'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Permission Management]
+      summary: Delete Permission
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /permissions/{id}/approve:
+    put:
+      tags: [Permission Management]
+      summary: Approve Permission
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved_by]
+              properties:
+                approved_by: { type: string }
+                remarks: { type: string }
+      responses:
+        '200': { description: Approved }
+
+  /permissions/{id}/reject:
+    put:
+      tags: [Permission Management]
+      summary: Reject Permission
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rejected_by]
+              properties:
+                rejected_by: { type: string }
+                remarks: { type: string }
+      responses:
+        '200': { description: Rejected }
+
+  # ===========================
+  # WFH MANAGEMENT
+  # ===========================
+  /wfh:
+    post:
+      tags: [WFH Management]
+      summary: Create WFH Request
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WFHRequest'
+      responses:
+        '201': { description: Created }
+
+  /wfh/getAllWFHRequests:
+    get:
+      tags: [WFH Management]
+      summary: Get All WFH Requests
+      responses:
+        '200': { description: OK }
+
+  /wfh/approveRejectWFHRequest/{id}:
+    patch:
+      tags: [WFH Management]
+      summary: Approve/Reject WFH
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action_by]
+              properties:
+                action_by: { type: string }
+                approve: { type: boolean }
+                remarks: { type: string }
+      responses:
+        '200': { description: Processed }
+
+  # ===========================
+  # ANNOUNCEMENTS
+  # ===========================
+  /announcements/active:
+    get:
+      tags: [Announcements]
+      summary: Get Active Announcements (for employees)
+      responses:
+        '200': { description: OK }
+
+  /admin/announcements:
+    get:
+      tags: [Announcements]
+      summary: Get All Announcements (Admin)
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Announcements]
+      summary: Create Announcement
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+      responses:
+        '201': { description: Created }
+
+  /admin/announcements/{id}:
+    get:
+      tags: [Announcements]
+      summary: Get Announcement by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Announcements]
+      summary: Update Announcement
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Announcement'
+      responses:
+        '200': { description: Updated }
+
+    delete:
+      tags: [Announcements]
+      summary: Delete Announcement
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # TEAM CARDS - ADMIN
+  # ===========================
+  /admin/team-cards:
+    get:
+      tags: [Team Cards - Admin]
+      summary: Get All Team Cards
+      parameters:
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: card_type, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Team Cards - Admin]
+      summary: Create Team Card
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCard'
+      responses:
+        '201': { description: Created }
+
+  /admin/team-cards/{teamCardId}:
+    get:
+      tags: [Team Cards - Admin]
+      summary: Get Team Card by ID
+      parameters:
+        - { name: teamCardId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+    put:
+      tags: [Team Cards - Admin]
+      summary: Update Team Card
+      parameters:
+        - { name: teamCardId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCard'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Team Cards - Admin]
+      summary: Delete Team Card
+      parameters:
+        - { name: teamCardId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /admin/team-cards/{teamCardId}/status:
+    patch:
+      tags: [Team Cards - Admin]
+      summary: Activate/Deactivate Team Card
+      parameters:
+        - { name: teamCardId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_card_status]
+              properties:
+                team_card_status: { type: integer, description: "1: Active, 0: Inactive" }
+      responses:
+        '200': { description: Status updated }
+
+  /admin/team-cards/{teamCardId}/usage:
+    get:
+      tags: [Team Cards - Admin]
+      summary: Get Team Card Usage Report
+      parameters:
+        - { name: teamCardId, in: path, required: true, schema: { type: string } }
+        - { name: from_date, in: query, schema: { type: string, format: date } }
+        - { name: to_date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # TEAM CARDS - EMPLOYEE
+  # ===========================
+  /employee/team-cards:
+    get:
+      tags: [Team Cards - Employee]
+      summary: Get Available Team Cards
+      responses:
+        '200': { description: OK }
+
+  /employee/team-cards/{teamCardId}/clock:
+    post:
+      tags: [Team Cards - Employee]
+      summary: Clock In/Out of Team Card
+      parameters:
+        - { name: teamCardId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, action]
+              properties:
+                employee_id: { type: string }
+                action: { type: string, enum: [clock_in, clock_out] }
+                notes: { type: string }
+      responses:
+        '200': { description: Success }
+
+  /employee/team-cards/usage:
+    get:
+      tags: [Team Cards - Employee]
+      summary: Get My Team Card Usage
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # OFFICE LOCATIONS
+  # ===========================
+  /office-locations:
+    get:
+      tags: [Office Locations]
+      summary: Get All Office Locations
+      responses:
+        '200': { description: list of locations }
+    
+    post:
+      tags: [Office Locations]
+      summary: Create Office Location
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfficeLocation'
+      responses:
+        '201': { description: Created }
+
+  /office-locations/active:
+    get:
+      tags: [Office Locations]
+      summary: Get Active Office Locations
+      responses:
+        '200': { description: OK }
+
+  /office-locations/{id}:
+    get:
+      tags: [Office Locations]
+      summary: Get Location by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Office Locations]
+      summary: Update Location
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfficeLocation'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Office Locations]
+      summary: Delete Location
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # DASHBOARD
+  # ===========================
+  /dashboard/calendar-events:
+    post:
+      tags: [Dashboard]
+      summary: Get Calendar Events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string, format: date }
+      responses:
+        '200': { description: OK }
+
+  /dashboard/birthdays:
+    get:
+      tags: [Dashboard]
+      summary: Get Birthdays
+      parameters:
+        - { name: month, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  /dashboard/task-analytics:
+    get:
+      tags: [Dashboard]
+      summary: Get Task Analytics
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # REPORTS (DAILY)
+  # ===========================
+  /reports:
+    post:
+      tags: [Reports]
+      summary: Submit Daily Report
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Report'
+      responses:
+        '201': { description: Created }
+
+  /reports/check:
+    get:
+      tags: [Reports]
+      summary: Check Report Exists
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  /reports/history:
+    get:
+      tags: [Reports]
+      summary: Get Report History
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # ADMIN REPORTS
+  # ===========================
+  /admin/reports/all:
+    post:
+      tags: [Admin Reports]
+      summary: Get All Employee Reports
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string }
+                employee_id: { type: string }
+                page: { type: integer }
+                limit: { type: integer }
+      responses:
+        '200': { description: OK }
+
+  /admin/reports/status:
+    post:
+      tags: [Admin Reports]
+      summary: Get Report Status
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string }
+                status: { type: string, enum: [reported, not_reported] }
+      responses:
+        '200': { description: OK }
+
+  /admin/leave-report/consolidated:
+    get:
+      tags: [Admin Reports]
+      summary: Get Consolidated Leave Report
+      parameters:
+        - { name: month, in: query, required: true, schema: { type: integer } }
+        - { name: year, in: query, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # EMPLOYEE PERFORMANCE
+  # ===========================
+  /performance/summary:
+    get:
+      tags: [Employee Performance]
+      summary: Get Performance Summary
+      parameters:
+        - { name: fromDate, in: query, schema: { type: string } }
+        - { name: toDate, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /performance/report/{employeeId}:
+    get:
+      tags: [Employee Performance]
+      summary: Get Employee Performance Report
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # EMPLOYEE OF THE MONTH
+  # ===========================
+  /admin/employee-of-the-month/rankings:
+    get:
+      tags: [Employee of the Month]
+      summary: Get Rankings
+      parameters:
+        - { name: month, in: query, schema: { type: integer } }
+        - { name: year, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  /admin/employee-of-the-month/run-daily-calculation:
+    post:
+      tags: [Employee of the Month]
+      summary: Run Daily Calculation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # CHAT
+  # ===========================
+  /chat/conversations:
+    get:
+      tags: [Chat]
+      summary: Get Conversations
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Chat]
+      summary: Create Conversation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Conversation'
+      responses:
+        '201': { description: Created }
+
+  /chat/conversations/{conversationId}/messages:
+    get:
+      tags: [Chat]
+      summary: Get Messages
+      parameters:
+        - { name: conversationId, in: path, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: before, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /chat/messages:
+    post:
+      tags: [Chat]
+      summary: Send Message
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Message'
+      responses:
+        '201': { description: Sent }
+
+  # ===========================
+  # CALENDAR MEETINGS
+  # ===========================
+  /admin/calendar/meetings:
+    get:
+      tags: [Calendar Meetings]
+      summary: Get All Meetings (Admin)
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Calendar Meetings]
+      summary: Create Meeting
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalendarMeeting'
+      responses:
+        '201': { description: Created }
+
+  /calendar/my-meetings:
+    get:
+      tags: [Calendar Meetings]
+      summary: Get My Meetings
+      parameters:
+        - { name: user_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /calendar/meetings/{id}/respond:
+    post:
+      tags: [Calendar Meetings]
+      summary: Respond to Meeting
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, response]
+              properties:
+                user_id: { type: string }
+                response: { type: string, enum: [accepted, declined] }
+      responses:
+        '200': { description: OK }
+
+  /calendar/venues/availability:
+    get:
+      tags: [Calendar Meetings]
+      summary: Check Venue Availability
+      parameters:
+        - { name: date, in: query, required: true, schema: { type: string } }
+        - { name: start_time, in: query, required: true, schema: { type: string } }
+        - { name: end_time, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # TODOS
+  # ===========================
+  /admin/todos:
+    get:
+      tags: [Todos]
+      summary: Get All Todos
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Todos]
+      summary: Create Todo
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Todo'
+      responses:
+        '201': { description: Created }
+
+  /admin/todos/{id}:
+    put:
+      tags: [Todos]
+      summary: Update Todo
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Todo'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Todos]
+      summary: Delete Todo
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # ASSETS
+  # ===========================
+  /admin/assets:
+    get:
+      tags: [Assets]
+      summary: Get All Assets
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Assets]
+      summary: Create Asset
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Asset'
+      responses:
+        '201': { description: Created }
+
+  /admin/assets/{id}:
+    get:
+      tags: [Assets]
+      summary: Get Asset by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Assets]
+      summary: Update Asset
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Asset'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Assets]
+      summary: Delete Asset
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /admin/assets/statistics:
+    get:
+      tags: [Assets]
+      summary: Get Asset Statistics
+      responses:
+        '200': { description: OK }
+
+  /admin/assets/types:
+    get:
+      tags: [Assets]
+      summary: Get Asset Types
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # EXPENSES
+  # ===========================
+  /admin/expenses:
+    get:
+      tags: [Expenses]
+      summary: Get All Expenses
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Expenses]
+      summary: Create Expense
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Expense'
+      responses:
+        '201': { description: Created }
+
+  /admin/expenses/{id}:
+    get:
+      tags: [Expenses]
+      summary: Get Expense by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Expenses]
+      summary: Update Expense
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Expense'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Expenses]
+      summary: Delete Expense
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # COMPANY HOLIDAYS
+  # ===========================
+  /admin/company-holidays:
+    get:
+      tags: [Company Holidays]
+      summary: Get All Holidays
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Company Holidays]
+      summary: Create Holiday
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyHoliday'
+      responses:
+        '201': { description: Created }
+
+  /admin/company-holidays/{id}:
+    get:
+      tags: [Company Holidays]
+      summary: Get Holiday by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Company Holidays]
+      summary: Update Holiday
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyHoliday'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Company Holidays]
+      summary: Delete Holiday
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # TIME TRACKING
+  # ===========================
+  /time-tracking/clock-in:
+    post:
+      tags: [Time Tracking]
+      summary: Clock In
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, task_id]
+              properties:
+                employee_id: { type: string }
+                task_id: { type: string }
+                task_name: { type: string }
+                work_date: { type: string, format: date }
+                clock_in_time: { type: string, format: date-time }
+      responses:
+        '200': { description: Clocked In }
+
+  /time-tracking/clock-out:
+    post:
+      tags: [Time Tracking]
+      summary: Clock Out
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, task_id]
+              properties:
+                employee_id: { type: string }
+                task_id: { type: string }
+                clock_out_time: { type: string, format: date-time }
+      responses:
+        '200': { description: Clocked Out }
+
+  /time-tracking/active:
+    get:
+      tags: [Time Tracking]
+      summary: Get Active Session
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /time-tracking/clear-stale:
+    post:
+      tags: [Time Tracking]
+      summary: Clear Stale Sessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id]
+              properties:
+                employee_id: { type: string }
+      responses:
+        '200': { description: Cleared }
+
+  /time-tracking/task/{taskId}/history:
+    get:
+      tags: [Time Tracking]
+      summary: Get Task History
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+        - { name: employee_id, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /time-tracking/task/{taskId}/summary:
+    get:
+      tags: [Time Tracking]
+      summary: Get Task Summary
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /time-tracking/task/{taskId}/hours:
+    get:
+      tags: [Time Tracking]
+      summary: Get Task Total Hours
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /time-tracking/daily:
+    get:
+      tags: [Time Tracking]
+      summary: Get Daily Records
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+        - { name: work_date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # SETTINGS - ROLES
+  # ===========================
+  /roles:
+    get:
+      tags: [Settings]
+      summary: Get All Roles
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Settings]
+      summary: Create Role
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Role'
+      responses:
+        '201': { description: Created }
+
+  /roles/{id}:
+    get:
+      tags: [Settings]
+      summary: Get Role by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Settings]
+      summary: Update Role
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Role'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Settings]
+      summary: Delete Role
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # SETTINGS - RELEASES
+  # ===========================
+  /releases:
+    get:
+      tags: [Settings]
+      summary: Get All Releases
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Settings]
+      summary: Create Release
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRelease'
+      responses:
+        '201': { description: Created }
+
+  /releases/{id}:
+    get:
+      tags: [Settings]
+      summary: Get Release by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Settings]
+      summary: Update Release
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionRelease'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Settings]
+      summary: Delete Release
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # SETTINGS - FUTURE PLANS
+  # ===========================
+  /future-plans:
+    get:
+      tags: [Settings]
+      summary: Get All Plans
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Settings]
+      summary: Create Plan
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FuturePlan'
+      responses:
+        '201': { description: Created }
+
+  /future-plans/{id}:
+    get:
+      tags: [Settings]
+      summary: Get Plan by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Settings]
+      summary: Update Plan
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FuturePlan'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Settings]
+      summary: Delete Plan
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # UPLOAD
+  # ===========================
+  /uploadFileToBucket:
+    post:
+      tags: [Upload]
+      summary: Upload File
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200': { description: Uploaded }
+
+  # ===========================
+  # AI CHAT
+  # ===========================
+  /ai/chat:
+    post:
+      tags: [AI]
+      summary: Chat with AI
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string }
+                session_id: { type: string }
+                current_tab: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /ai/status:
+    get:
+      tags: [AI]
+      summary: Get AI Status
+      responses:
+        '200': { description: OK }
+
+  /ai/history/{sessionId}:
+    get:
+      tags: [AI]
+      summary: Get Chat History
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /ai/session/{sessionId}:
+    delete:
+      tags: [AI]
+      summary: Clear Chat Session
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Cleared }
+
+  # ===========================
+  # BIOMETRICS (FACE / FINGERPRINT)
+  # ===========================
+  /face/enroll:
+    post:
+      tags: [Biometrics]
+      summary: Enroll Face/Fingerprint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FaceEnrollment'
+      responses:
+        '201': { description: Enrolled }
+
+  /face/punch:
+    post:
+      tags: [Biometrics]
+      summary: Punch via Face
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id]
+              properties:
+                employee_id: { type: string }
+                match_confidence: { type: number }
+                clock_timestamp: { type: string }
+      responses:
+        '200': { description: Punched }
+
+  /face/verify-fingerprint:
+    post:
+      tags: [Biometrics]
+      summary: Verify Fingerprint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [captured_template]
+              properties:
+                captured_template: { type: string }
+                clock_timestamp: { type: string }
+      responses:
+        '200': { description: Verified }
+
+  /face/employees:
+    get:
+      tags: [Biometrics]
+      summary: Get Enrolled Employees
+      responses:
+        '200': { description: OK }
+
+  /face/employees/{employeeId}:
+    delete:
+      tags: [Biometrics]
+      summary: Delete Enrollment
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # ===========================
+  # LEAVE POLICY
+  # ===========================
+  /leave-policy:
+    get:
+      tags: [Leave Policy]
+      summary: Get Policy
+      responses:
+        '200': { description: OK }
+
+  /leave-policy/status/{employeeId}:
+    get:
+      tags: [Leave Policy]
+      summary: Get Allowance Status
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # PROJECT HELPER (DOCUMENTS, ETC)
+  # ===========================
+  # Project Documents
+  /projects/{projectId}/documents:
+    get:
+      tags: [Project Resources]
+      summary: Get Project Documents
+      parameters: &projectIdParam
+        - { name: projectId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Project Resources]
+      summary: Upload Project Document
+      parameters: *projectIdParam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectDocument'
+      responses:
+        '201': { description: Created }
+
+  /projects/{projectId}/documents/{documentId}:
+    delete:
+      tags: [Project Resources]
+      summary: Delete Project Document
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string } }
+        - { name: documentId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # Project Milestones
+  /projects/{projectId}/milestones:
+    get:
+      tags: [Project Resources]
+      summary: Get Project Milestones
+      parameters: *projectIdParam
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Project Resources]
+      summary: Create Milestone
+      parameters: *projectIdParam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectMilestone'
+      responses:
+        '201': { description: Created }
+
+  /projects/{projectId}/milestones/{milestoneId}:
+    put:
+      tags: [Project Resources]
+      summary: Update Milestone
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string } }
+        - { name: milestoneId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectMilestone'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Project Resources]
+      summary: Delete Milestone
+      parameters:
+        - { name: projectId, in: path, required: true, schema: { type: string } }
+        - { name: milestoneId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  # Client Reviews
+  /projects/{projectId}/client-reviews:
+    get:
+      tags: [Project Resources]
+      summary: Get Client Reviews
+      parameters: *projectIdParam
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Project Resources]
+      summary: Create Review
+      parameters: *projectIdParam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientReview'
+      responses:
+        '201': { description: Created }
+
+  # Discontinuation
+  /projects/{projectId}/discontinuation:
+    get:
+      tags: [Project Resources]
+      summary: Get Discontinuation Info
+      parameters: *projectIdParam
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Project Resources]
+      summary: Discontinue Project
+      parameters: *projectIdParam
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectDiscontinuation'
+      responses:
+        '201': { description: Created }
+    
+    delete:
+      tags: [Project Resources]
+      summary: Reactivate Project
+      parameters: *projectIdParam
+      responses:
+        '200': { description: Reactivated }
+
+  # ===========================
+  # EMPLOYEE DOCUMENTS
+  # ===========================
+  /admin/request-docs-from-employee:
+    post:
+      tags: [Employee Documents]
+      summary: Request Docs (Admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, requestedBy, documents]
+              properties:
+                employeeId: { type: string }
+                requestedBy: { type: string }
+                documents: 
+                  type: array
+                  items: { type: object }
+      responses:
+        '201': { description: Requested }
+
+  /admin/employee-documents:
+    get:
+      tags: [Employee Documents]
+      summary: Get Documents (Admin)
+      parameters:
+        - { name: employeeId, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /admin/review-document:
+    post:
+      tags: [Employee Documents]
+      summary: Review Document (Admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId, status, adminId]
+              properties:
+                documentId: { type: string }
+                status: { type: string, enum: [approved, rejected] }
+                adminId: { type: string }
+                adminComments: { type: string }
+      responses:
+        '200': { description: Reviewed }
+
+  /employee/requested-documents/{employeeId}:
+    get:
+      tags: [Employee Documents]
+      summary: Get Requested Docs
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /employee/submit-document:
+    post:
+      tags: [Employee Documents]
+      summary: Submit Document
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId, documentUrl, employeeId]
+              properties:
+                documentId: { type: string }
+                documentUrl: { type: string }
+                employeeId: { type: string }
+      responses:
+        '200': { description: Submitted }
+
+  /document-types:
+    get:
+      tags: [Employee Documents]
+      summary: Get Valid Document Types
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # TASK CARD REQUESTS
+  # ===========================
+  /admin/task-card-requests:
+    get:
+      tags: [Task Card Requests]
+      summary: Get Requests (Admin)
+      responses:
+        '200': { description: OK }
+
+  /admin/task-card-requests/{requestId}:
+    get:
+      tags: [Task Card Requests]
+      summary: Get Request by ID
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /admin/task-card-requests/{requestId}/approve:
+    post:
+      tags: [Task Card Requests]
+      summary: Approve Request
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approved_by: { type: string }
+                remarks: { type: string }
+      responses:
+        '200': { description: Approved }
+
+  /admin/task-card-requests/{requestId}/reject:
+    post:
+      tags: [Task Card Requests]
+      summary: Reject Request
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                rejected_by: { type: string }
+                reason: { type: string }
+      responses:
+        '200': { description: Rejected }
+
+  /employee/task-card-requests:
+    get:
+      tags: [Task Card Requests]
+      summary: Get My Requests
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    post:
+      tags: [Task Card Requests]
+      summary: Create Request
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCardRequest'
+      responses:
+        '201': { description: Created }
+
+  /employee/task-card-requests/{requestId}:
+    delete:
+      tags: [Task Card Requests]
+      summary: Cancel Request
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string } }
+        - { name: employee_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Cancelled }
+
+  # ===========================
+  # HOME ROUTES
+  # ===========================
+  /home/overview:
+    post:
+      tags: [Home]
+      summary: Get Home Overview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HomeOverviewRequest'
+      responses:
+        '200': { description: OK }
+
+  /home/monthly-events:
+    post:
+      tags: [Home]
+      summary: Get Monthly Events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonthlyEventsRequest'
+      responses:
+        '200': { description: OK }
+
+  /home/date-details:
+    post:
+      tags: [Home]
+      summary: Get Date Details
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DateDetailsRequest'
+      responses:
+        '200': { description: OK }
+
+  # ===========================
+  # NOTIFICATIONS
+  # ===========================
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: Get My Notifications
+      responses:
+        '200': { description: OK }
+
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Get My Unread Count
+      responses:
+        '200': { description: OK }
+
+  /notifications/user/{userId}:
+    get:
+      tags: [Notifications]
+      summary: Get User Notifications
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /notifications/user/{userId}/unread-count:
+    get:
+      tags: [Notifications]
+      summary: Get User Unread Count
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /notifications/{notificationId}/read:
+    post:
+      tags: [Notifications]
+      summary: Mark as Read
+      parameters:
+        - { name: notificationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Marked as read }
+
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark All as Read
+      responses:
+        '200': { description: Marked all as read }
+
+  /notifications/{notificationId}:
+    delete:
+      tags: [Notifications]
+      summary: Delete Notification
+      parameters:
+        - { name: notificationId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /notifications/all:
+    delete:
+      tags: [Notifications]
+      summary: Delete All Notifications
+      responses:
+        '200': { description: Deleted all }
+
+  /notifications/trigger-celebrations:
+    post:
+      tags: [Notifications]
+      summary: Trigger Celebrations (Admin)
+      responses:
+        '200': { description: Triggered }
+
+  # ===========================
+  # EMPLOYEE MANAGEMENT
+  # ===========================
+  /v2/employees/list:
+    get:
+      tags: [Employee Management]
+      summary: Get All Employees (V2 - Secret Key)
+      description: Returns all employees. This API is protected by a hardcoded secret key in the x-api-key header. JWT token is not required.
+      security: []
+      parameters:
+        - name: x-api-key
+          in: header
+          required: true
+          schema:
+            type: string
+          example: SprintlyInternal@2024
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: boolean } }
+        - { name: role, in: query, schema: { type: string } }
+        - { name: designation, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: sortBy, in: query, schema: { type: string } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc] } }
+      responses:
+        '200': { description: OK }
+
+  /v2/employees/get-details:
+    post:
+      tags: [Employee Management]
+      summary: Get Employee Details by ID (V2 - Secret Key)
+      description: Returns detailed info for a specific employee. This API is protected by a hardcoded secret key in the x-api-key header. JWT token is not required.
+      security: []
+      parameters:
+        - name: x-api-key
+          in: header
+          required: true
+          schema:
+            type: string
+          example: SprintlyInternal@2024
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId]
+              properties:
+                employeeId: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /employees:
+    
+    post:
+      tags: [Employee Management]
+      summary: Create Employee
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Employee'
+      responses:
+        '201': { description: Created }
+
+  /employees/{id}:
+    get:
+      tags: [Employee Management]
+      summary: Get Employee by ID
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+    
+    put:
+      tags: [Employee Management]
+      summary: Update Employee
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Employee'
+      responses:
+        '200': { description: Updated }
+    
+    delete:
+      tags: [Employee Management]
+      summary: Delete Employee
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deleted }
+
+  /employees/{id}/status:
+    put:
+      tags: [Employee Management]
+      summary: Update Status
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: boolean }
+                changedBy: { type: string }
+      responses:
+        '200': { description: Updated }
+
+  /employees/{id}/exit:
+    post:
+      tags: [Employee Management]
+      summary: Exit Employee
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [doe]
+              properties:
+                doe: { type: string, format: date }
+                exitReason: { type: string }
+                exitedBy: { type: string }
+      responses:
+        '200': { description: Exited }
+
+  /employees/{id}/reenter:
+    post:
+      tags: [Employee Management]
+      summary: Re-enter Employee
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Re-entered }
+
+  /employees/qc:
+    get:
+      tags: [Employee Management]
+      summary: Get QC Employees
+      responses:
+        '200': { description: OK }
+
+  /employees/birthdays:
+    get:
+      tags: [Employee Management]
+      summary: Get Birthdays
+      parameters:
+        - { name: month, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+  /employees/anniversaries:
+    get:
+      tags: [Employee Management]
+      summary: Get Anniversaries
+      responses:
+        '200': { description: OK }
+
+  /employees/overview:
+    get:
+      tags: [Employee Management]
+      summary: Get Overview
+      responses:
+        '200': { description: OK }
+
+  /employees/present:
+    get:
+      tags: [Employee Management]
+      summary: Get Present Employees
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  /employees/wfh:
+    get:
+      tags: [Employee Management]
+      summary: Get WFH Employees
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  /employees/permission:
+    get:
+      tags: [Employee Management]
+      summary: Get Permission Employees
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  /employees/late:
+    get:
+      tags: [Employee Management]
+      summary: Get Late Employees
+      parameters:
+        - { name: date, in: query, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }
+
+  /employees/export:
+    post:
+      tags: [Employee Management]
+      summary: Export Employees
+      responses:
+        '200': { description: Exported }
+
+  # ===========================
+  # EMPLOYEE TRACKER (ADMIN)
+  # ===========================
+  /admin/employee-tracker:
+    get:
+      tags: [Employee Tracking]
+      summary: Get Tracker List
+      parameters:
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: status_filter, in: query, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /admin/employee-tracker/{employee_id}/detail:
+    get:
+      tags: [Employee Tracking]
+      summary: Get Tracker Detail
+      parameters:
+        - { name: employee_id, in: path, required: true, schema: { type: string } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: OK }

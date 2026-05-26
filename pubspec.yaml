@@ -1,0 +1,58 @@
+name: webnox_sprintly_admin_backend
+description: REST API backend for Webnox Sprintly Admin Dashboard
+version: 1.0.0
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  # HTTP Server
+  shelf: ^1.4.0
+  shelf_router: ^1.1.0
+  shelf_web_socket: ^2.0.0
+  web_socket_channel: ^3.0.1
+  
+  # Database
+  postgres: ^3.5.5
+  
+  # Authentication
+  jwt_decoder: ^2.0.1
+  dart_jsonwebtoken: ^2.10.1
+  crypto: ^3.0.3
+  
+  # Utilities
+  logger: ^2.0.2+1
+  uuid: ^4.3.3
+  
+  # File handling
+  mime: ^1.0.4
+  path: ^1.9.0
+  
+  # HTTP Client (for email webhook)
+  http: ^1.2.0
+  
+  # Environment Variables
+  dotenv: ^4.2.0
+  
+  # JSON
+  json_annotation: ^4.9.0
+  
+  # PDF Generation
+  pdf: ^3.10.8
+  
+  # Excel Export
+  excel: ^4.0.6
+  
+  # Internationalization (date/time formatting)
+  intl: ^0.20.2
+  mailer: ^6.6.0
+  
+  # Google APIs (Calendar API for Meet link generation) - Disabled due to dependency issues
+  # googleapis: ^14.0.0
+  # googleapis_auth: ^2.0.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.24.0
+  build_runner: ^2.4.8
+  json_serializable: ^6.7.1

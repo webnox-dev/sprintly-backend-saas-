@@ -1,0 +1,8 @@
+Analyzing letter_generation_service.dart...
+
+warning - letter_generation_service.dart:8:8 - Unused import: '../domain/models/employee.dart'. Try removing the import directive. - unused_import
+   info - letter_generation_service.dart:689:13 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+   info - letter_generation_service.dart:691:13 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+   info - letter_generation_service.dart:693:13 - Statements in an if should be enclosed in a block. Try wrapping the statement in a block. - curly_braces_in_flow_control_structures
+
+4 issues found.

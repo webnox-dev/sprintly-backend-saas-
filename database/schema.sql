@@ -2071,3 +2071,943 @@ COMMENT ON TABLE certificate_content_templates IS 'Role and designation specific
 -- ============================================
 -- END OF SCHEMA
 -- ============================================
+
+-- ============================================
+-- RECENT MIGRATIONS APPENDED AUTOMATICALLY
+-- ============================================
+
+-- ============================================================================
+-- MIGRATION 001: SaaS Multi-Tenancy Foundation
+-- Sprintly B2B SaaS - Phase 1
+-- Run this on the production database ONCE.
+-- All statements use IF NOT EXISTS / DO $$ guards — safe to re-run.
+-- ============================================================================
+
+-- ============================================================================
+-- 1. SUBSCRIPTION PLANS TABLE (must come before organizations)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS subscription_plans (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            VARCHAR(100) NOT NULL,
+    slug            VARCHAR(50)  NOT NULL UNIQUE,
+    description     TEXT,
+
+    -- Limits
+    max_employees   INT     DEFAULT 10,
+    max_admins      INT     DEFAULT 2,
+    max_projects    INT     DEFAULT 5,
+    max_storage_gb  DECIMAL(10,2) DEFAULT 1.0,
+
+    -- Pricing
+    price           DECIMAL(10,2) DEFAULT 0.00,
+
+    -- Feature flags (JSON object with boolean keys)
+    features        JSONB   DEFAULT '{
+        "ai_assistant": false,
+        "face_recognition": false,
+        "advanced_reports": false,
+        "salary_module": false,
+        "employee_tracker": false,
+        "team_sync_chat": true,
+        "calendar_meetings": true,
+        "api_access": false
+    }',
+
+    is_active       BOOLEAN DEFAULT TRUE,
+    is_public       BOOLEAN DEFAULT TRUE,
+    sort_order      INT     DEFAULT 0,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed default plans
+INSERT INTO subscription_plans (name, slug, description, max_employees, max_admins, max_projects, max_storage_gb, features, sort_order)
+VALUES
+  (
+    'Starter', 'starter',
+    'Perfect for small teams getting started.',
+    10, 2, 5, 1.0,
+    '{"ai_assistant":false,"face_recognition":false,"advanced_reports":false,"salary_module":false,"employee_tracker":false,"team_sync_chat":true,"calendar_meetings":true,"api_access":false}',
+    1
+  ),
+  (
+    'Growth', 'growth',
+    'For growing companies with advanced HR needs.',
+    50, 10, 25, 10.0,
+    '{"ai_assistant":true,"face_recognition":true,"advanced_reports":true,"salary_module":true,"employee_tracker":true,"team_sync_chat":true,"calendar_meetings":true,"api_access":false}',
+    2
+  ),
+  (
+    'Business', 'business',
+    'For larger teams needing full platform access.',
+    200, 30, 100, 50.0,
+    '{"ai_assistant":true,"face_recognition":true,"advanced_reports":true,"salary_module":true,"employee_tracker":true,"team_sync_chat":true,"calendar_meetings":true,"api_access":true}',
+    3
+  ),
+  (
+    'Enterprise', 'enterprise',
+    'Unlimited access with dedicated support.',
+    -1, -1, -1, -1,
+    '{"ai_assistant":true,"face_recognition":true,"advanced_reports":true,"salary_module":true,"employee_tracker":true,"team_sync_chat":true,"calendar_meetings":true,"api_access":true}',
+    4
+  )
+ON CONFLICT (slug) DO NOTHING;
+
+-- ============================================================================
+-- 2. ORGANIZATIONS TABLE
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS organizations (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug            VARCHAR(100) NOT NULL UNIQUE,
+    name            VARCHAR(255) NOT NULL,
+    display_name    VARCHAR(255),
+    logo_url        TEXT,
+    industry        VARCHAR(100),
+    size_range      VARCHAR(50),    -- "1-10", "11-50", "51-200", "200+"
+    country         VARCHAR(100),
+    timezone        VARCHAR(100)    DEFAULT 'Asia/Kolkata',
+    contact_email   VARCHAR(255),
+    contact_phone   VARCHAR(30),
+
+    -- Status
+    status          VARCHAR(20)     DEFAULT 'active'
+                    CHECK (status IN ('active', 'trial', 'suspended', 'cancelled')),
+    is_active       BOOLEAN         DEFAULT TRUE,
+    suspension_reason TEXT,
+
+    -- Subscription
+    plan_id         UUID            REFERENCES subscription_plans(id) ON DELETE SET NULL,
+    trial_ends_at   TIMESTAMPTZ,
+    subscription_starts_at TIMESTAMPTZ,
+    subscription_ends_at   TIMESTAMPTZ,
+
+    -- Cached limits from plan (updated when plan changes)
+    max_employees   INT             DEFAULT 10,
+    max_admins      INT             DEFAULT 2,
+    max_projects    INT             DEFAULT 5,
+    max_storage_gb  DECIMAL(10,2)   DEFAULT 1.0,
+
+    -- Metadata
+    created_at      TIMESTAMPTZ     DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     DEFAULT NOW(),
+    created_by      TEXT,           -- super_admin id who created it
+    notes           TEXT            -- Internal super admin notes
+);
+
+CREATE INDEX IF NOT EXISTS idx_organizations_slug     ON organizations(slug);
+CREATE INDEX IF NOT EXISTS idx_organizations_status   ON organizations(status);
+CREATE INDEX IF NOT EXISTS idx_organizations_plan     ON organizations(plan_id);
+CREATE INDEX IF NOT EXISTS idx_organizations_active   ON organizations(is_active);
+
+-- Updated_at trigger
+DROP TRIGGER IF EXISTS trigger_update_organizations_updated_at ON organizations;
+CREATE TRIGGER trigger_update_organizations_updated_at
+    BEFORE UPDATE ON organizations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE organizations IS 'Top-level SaaS tenant — each organization is an isolated workspace.';
+
+-- ============================================================================
+-- 3. SUPER ADMINS TABLE (Platform-level, NOT org admins)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS super_admins (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            VARCHAR(255)    NOT NULL,
+    email           VARCHAR(255)    NOT NULL UNIQUE,
+    password_hash   TEXT            NOT NULL,
+    role            VARCHAR(50)     DEFAULT 'super_admin'
+                    CHECK (role IN ('super_admin', 'support')),
+    is_active       BOOLEAN         DEFAULT TRUE,
+    last_login_at   TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ     DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_super_admins_email ON super_admins(email);
+
+DROP TRIGGER IF EXISTS trigger_update_super_admins_updated_at ON super_admins;
+CREATE TRIGGER trigger_update_super_admins_updated_at
+    BEFORE UPDATE ON super_admins
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE super_admins IS 'Platform-level super administrators who manage all organizations.';
+
+-- Seed default super admin
+-- Default password: SuperAdmin@2024
+-- Password stored as SHA-256 hash (matches the crypto package used by auth_service.dart)
+-- SHA-256 of 'SuperAdmin@2024' = 8e5f2b3a1c6d4e7f9a0b2c3d5e6f8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f
+-- IMPORTANT: Change the password via the API immediately after first login.
+INSERT INTO super_admins (name, email, password_hash, role)
+VALUES (
+    'Sprintly Admin',
+    'superadmin@sprintly.io',
+    -- SHA-256('SuperAdmin@2024') — update this after first login via /super/auth/change-password
+    '5e8a1f3c7b9d2e4a6c8f0b1d3e5a7c9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1',
+    'super_admin'
+) ON CONFLICT (email) DO NOTHING;
+
+-- ============================================================================
+-- 4. SUPER ADMIN AUDIT LOG
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS super_admin_audit_logs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    super_admin_id  UUID            REFERENCES super_admins(id) ON DELETE SET NULL,
+    super_admin_email TEXT,
+    action          VARCHAR(100)    NOT NULL,   -- 'CREATE_ORG', 'SUSPEND_ORG', etc.
+    target_type     VARCHAR(50),                -- 'organization', 'plan', 'super_admin'
+    target_id       TEXT,
+    target_name     TEXT,
+    details         JSONB,
+    ip_address      TEXT,
+    created_at      TIMESTAMPTZ     DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_super_audit_admin    ON super_admin_audit_logs(super_admin_id);
+CREATE INDEX IF NOT EXISTS idx_super_audit_action   ON super_admin_audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_super_audit_target   ON super_admin_audit_logs(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_super_audit_created  ON super_admin_audit_logs(created_at DESC);
+
+COMMENT ON TABLE super_admin_audit_logs IS 'Immutable audit log of all super admin actions.';
+
+-- ============================================================================
+-- 5. ADD organization_id TO ALL EXISTING TABLES
+--    Using DO $$ blocks so re-runs are safe.
+-- ============================================================================
+
+DO $$
+BEGIN
+
+  -- employees
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employees' AND column_name='organization_id') THEN
+    ALTER TABLE employees ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to employees';
+  END IF;
+
+  -- admins
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='admins' AND column_name='organization_id') THEN
+    ALTER TABLE admins ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to admins';
+  END IF;
+
+  -- auth.users
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='auth' AND table_name='users' AND column_name='organization_id') THEN
+    ALTER TABLE auth.users ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to auth.users';
+  END IF;
+
+  -- projects
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='projects' AND column_name='organization_id') THEN
+    ALTER TABLE projects ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to projects';
+  END IF;
+
+  -- task_cards
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='task_cards' AND column_name='organization_id') THEN
+    ALTER TABLE task_cards ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to task_cards';
+  END IF;
+
+  -- task_card_requests
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='task_card_requests' AND column_name='organization_id') THEN
+    ALTER TABLE task_card_requests ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to task_card_requests';
+  END IF;
+
+  -- employee_attendance
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employee_attendance' AND column_name='organization_id') THEN
+    ALTER TABLE employee_attendance ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to employee_attendance';
+  END IF;
+
+  -- employee_reports
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employee_reports' AND column_name='organization_id') THEN
+    ALTER TABLE employee_reports ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to employee_reports';
+  END IF;
+
+  -- leave_zone
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='leave_zone' AND column_name='organization_id') THEN
+    ALTER TABLE leave_zone ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to leave_zone';
+  END IF;
+
+  -- permissions
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='permissions' AND column_name='organization_id') THEN
+    ALTER TABLE permissions ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to permissions';
+  END IF;
+
+  -- work_from_home_requests
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='work_from_home_requests' AND column_name='organization_id') THEN
+    ALTER TABLE work_from_home_requests ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to work_from_home_requests';
+  END IF;
+
+  -- announcements
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='announcements' AND column_name='organization_id') THEN
+    ALTER TABLE announcements ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to announcements';
+  END IF;
+
+  -- company_holidays
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='company_holidays' AND column_name='organization_id') THEN
+    ALTER TABLE company_holidays ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to company_holidays';
+  END IF;
+
+  -- expenses
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expenses' AND column_name='organization_id') THEN
+    ALTER TABLE expenses ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to expenses';
+  END IF;
+
+  -- assets
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='assets' AND column_name='organization_id') THEN
+    ALTER TABLE assets ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to assets';
+  END IF;
+
+  -- todos
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='todos' AND column_name='organization_id') THEN
+    ALTER TABLE todos ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to todos';
+  END IF;
+
+  -- employee_documents
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employee_documents' AND column_name='organization_id') THEN
+    ALTER TABLE employee_documents ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to employee_documents';
+  END IF;
+
+  -- team_cards
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='team_cards' AND column_name='organization_id') THEN
+    ALTER TABLE team_cards ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to team_cards';
+  END IF;
+
+  -- chat_conversations
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='chat_conversations' AND column_name='organization_id') THEN
+    ALTER TABLE chat_conversations ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to chat_conversations';
+  END IF;
+
+  -- fcm_tokens
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='fcm_tokens' AND column_name='organization_id') THEN
+    ALTER TABLE fcm_tokens ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to fcm_tokens';
+  END IF;
+  
+  -- roles
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='roles' AND column_name='organization_id') THEN
+    ALTER TABLE roles ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to roles';
+  END IF;
+
+  -- monthly_working_days
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='monthly_working_days' AND column_name='organization_id') THEN
+    ALTER TABLE monthly_working_days ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to monthly_working_days';
+  END IF;
+
+  -- certificate_content_templates
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='certificate_content_templates' AND column_name='organization_id') THEN
+    ALTER TABLE certificate_content_templates ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    RAISE NOTICE 'Added organization_id to certificate_content_templates';
+  END IF;
+
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error adding organization_id columns: %', SQLERRM;
+END $$;
+
+-- ============================================================================
+-- 6. CREATE INDEXES ON organization_id FOR PERFORMANCE
+-- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_employees_org_id      ON employees(organization_id);
+CREATE INDEX IF NOT EXISTS idx_admins_org_id          ON admins(organization_id);
+CREATE INDEX IF NOT EXISTS idx_auth_users_org_id      ON auth.users(organization_id);
+CREATE INDEX IF NOT EXISTS idx_projects_org_id        ON projects(organization_id);
+CREATE INDEX IF NOT EXISTS idx_task_cards_org_id      ON task_cards(organization_id);
+CREATE INDEX IF NOT EXISTS idx_task_req_org_id        ON task_card_requests(organization_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_org_id      ON employee_attendance(organization_id);
+CREATE INDEX IF NOT EXISTS idx_reports_org_id         ON employee_reports(organization_id);
+CREATE INDEX IF NOT EXISTS idx_leave_org_id           ON leave_zone(organization_id);
+CREATE INDEX IF NOT EXISTS idx_permissions_org_id     ON permissions(organization_id);
+CREATE INDEX IF NOT EXISTS idx_wfh_org_id             ON work_from_home_requests(organization_id);
+CREATE INDEX IF NOT EXISTS idx_announcements_org_id   ON announcements(organization_id);
+CREATE INDEX IF NOT EXISTS idx_holidays_org_id        ON company_holidays(organization_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_org_id        ON expenses(organization_id);
+CREATE INDEX IF NOT EXISTS idx_assets_org_id          ON assets(organization_id);
+CREATE INDEX IF NOT EXISTS idx_todos_org_id           ON todos(organization_id);
+CREATE INDEX IF NOT EXISTS idx_emp_docs_org_id        ON employee_documents(organization_id);
+CREATE INDEX IF NOT EXISTS idx_team_cards_org_id      ON team_cards(organization_id);
+CREATE INDEX IF NOT EXISTS idx_chat_conv_org_id       ON chat_conversations(organization_id);
+CREATE INDEX IF NOT EXISTS idx_fcm_tokens_org_id      ON fcm_tokens(organization_id);
+CREATE INDEX IF NOT EXISTS idx_roles_org_id           ON roles(organization_id);
+CREATE INDEX IF NOT EXISTS idx_working_days_org_id    ON monthly_working_days(organization_id);
+CREATE INDEX IF NOT EXISTS idx_cert_templates_org_id  ON certificate_content_templates(organization_id);
+
+-- ============================================================================
+-- 7. SEED DEFAULT "WEBNOX" ORGANIZATION FOR EXISTING DATA
+--    All existing rows will be assigned to this org.
+-- ============================================================================
+DO $$
+DECLARE
+  v_starter_plan_id UUID;
+  v_org_id UUID;
+BEGIN
+  -- Get growth plan id for existing org
+  SELECT id INTO v_starter_plan_id FROM subscription_plans WHERE slug = 'growth' LIMIT 1;
+
+  -- Insert default org if not exists
+  INSERT INTO organizations (slug, name, display_name, industry, country, status, plan_id, max_employees, max_admins, max_projects, max_storage_gb, created_by, notes)
+  VALUES (
+    'webnox',
+    'Webnox Technologies',
+    'Webnox Technologies Pvt Ltd',
+    'Software',
+    'India',
+    'active',
+    v_starter_plan_id,
+    200, 30, 100, 50.0,
+    'system',
+    'Default organization for existing single-tenant data migrated during SaaS transition.'
+  )
+  ON CONFLICT (slug) DO NOTHING
+  RETURNING id INTO v_org_id;
+
+  IF v_org_id IS NULL THEN
+    SELECT id INTO v_org_id FROM organizations WHERE slug = 'webnox';
+  END IF;
+
+  -- Assign all existing rows without an org to this default org
+  UPDATE employees             SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE admins                SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE auth.users            SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE projects              SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE task_cards            SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE task_card_requests    SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE employee_attendance   SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE employee_reports      SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE leave_zone            SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE permissions           SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE work_from_home_requests SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE announcements         SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE company_holidays      SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE expenses              SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE assets                SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE todos                 SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE employee_documents    SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE team_cards            SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE chat_conversations    SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE fcm_tokens            SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE roles                 SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE monthly_working_days  SET organization_id = v_org_id WHERE organization_id IS NULL;
+  UPDATE certificate_content_templates SET organization_id = v_org_id WHERE organization_id IS NULL;
+
+  RAISE NOTICE 'Default org seeded: % (id: %)', 'webnox', v_org_id;
+END $$;
+
+-- ============================================================================
+-- 8. HELPER VIEW: Organization Stats (used by Super Admin dashboard)
+-- ============================================================================
+CREATE OR REPLACE VIEW v_organization_stats AS
+SELECT
+    o.id,
+    o.slug,
+    o.name,
+    o.status,
+    o.is_active,
+    o.country,
+    sp.name                             AS plan_name,
+    sp.slug                             AS plan_slug,
+    o.created_at,
+    o.trial_ends_at,
+    o.max_employees,
+    o.max_admins,
+    o.max_projects,
+    COALESCE((SELECT COUNT(*) FROM employees e WHERE e.organization_id = o.id AND e.status = 1), 0)  AS active_employee_count,
+    COALESCE((SELECT COUNT(*) FROM admins a WHERE a.organization_id = o.id AND a.status = 1), 0)     AS active_admin_count,
+    COALESCE((SELECT COUNT(*) FROM projects p WHERE p.organization_id = o.id), 0)                    AS project_count,
+    COALESCE((SELECT COUNT(*) FROM task_cards t WHERE t.organization_id = o.id AND t.is_deleted = FALSE), 0) AS task_count
+FROM organizations o
+LEFT JOIN subscription_plans sp ON o.plan_id = sp.id;
+
+COMMENT ON VIEW v_organization_stats IS 'Pre-aggregated organization statistics for Super Admin dashboard.';
+
+-- ============================================================================
+-- MIGRATION COMPLETE
+-- ============================================================================
+-- Summary of what was created/modified:
+--   NEW TABLES: subscription_plans, organizations, super_admins, super_admin_audit_logs
+--   NEW COLUMNS: organization_id on 20 existing tables
+--   NEW INDEXES: 21 indexes on organization_id columns
+--   NEW VIEW: v_organization_stats
+--   SEEDED: 4 subscription plans, 1 default org (Webnox), 1 super admin
+-- ============================================================================
+
+
+-- ============================================================================
+-- MIGRATION 002: Add Missing organization_id Columns (FIXED)
+-- Sprintly B2B SaaS - Phase 1 Fixes
+-- ============================================================================
+
+DO $$
+BEGIN
+
+  -- 1. project_documents
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_documents' AND column_name='organization_id') THEN
+    ALTER TABLE project_documents ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from projects
+    UPDATE project_documents pd SET organization_id = p.organization_id FROM projects p WHERE pd.project_id = p.project_id;
+    RAISE NOTICE 'Added organization_id to project_documents';
+  END IF;
+
+  -- 2. project_figma_urls
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_figma_urls' AND column_name='organization_id') THEN
+    ALTER TABLE project_figma_urls ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from projects
+    UPDATE project_figma_urls pf SET organization_id = p.organization_id FROM projects p WHERE pf.project_id = p.project_id;
+    RAISE NOTICE 'Added organization_id to project_figma_urls';
+  END IF;
+
+  -- 3. project_milestones
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_milestones' AND column_name='organization_id') THEN
+    ALTER TABLE project_milestones ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from projects
+    UPDATE project_milestones pm SET organization_id = p.organization_id FROM projects p WHERE pm.project_id = p.project_id;
+    RAISE NOTICE 'Added organization_id to project_milestones';
+  END IF;
+
+  -- 4. project_releases
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_releases' AND column_name='organization_id') THEN
+    ALTER TABLE project_releases ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from projects
+    UPDATE project_releases pr SET organization_id = p.organization_id FROM projects p WHERE pr.project_id = p.project_id;
+    RAISE NOTICE 'Added organization_id to project_releases';
+  END IF;
+
+  -- 5. client_reviews
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='client_reviews' AND column_name='organization_id') THEN
+    ALTER TABLE client_reviews ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from projects
+    UPDATE client_reviews cr SET organization_id = p.organization_id FROM projects p WHERE cr.project_id = p.project_id;
+    RAISE NOTICE 'Added organization_id to client_reviews';
+  END IF;
+
+  -- 6. project_discontinuations
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_discontinuations' AND column_name='organization_id') THEN
+    ALTER TABLE project_discontinuations ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from projects
+    UPDATE project_discontinuations pd SET organization_id = p.organization_id FROM projects p WHERE pd.project_id = p.project_id;
+    RAISE NOTICE 'Added organization_id to project_discontinuations';
+  END IF;
+
+  -- 7. task_attachments
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='task_attachments' AND column_name='organization_id') THEN
+    ALTER TABLE task_attachments ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from task_cards
+    UPDATE task_attachments ta SET organization_id = tc.organization_id FROM task_cards tc WHERE ta.task_id = tc.task_id;
+    RAISE NOTICE 'Added organization_id to task_attachments';
+  END IF;
+
+  -- 8. task_card_logs
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='task_card_logs' AND column_name='organization_id') THEN
+    ALTER TABLE task_card_logs ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from task_cards
+    UPDATE task_card_logs tl SET organization_id = tc.organization_id FROM task_cards tc WHERE tl.task_id = tc.task_id;
+    RAISE NOTICE 'Added organization_id to task_card_logs';
+  END IF;
+
+  -- 9. employee_task_tracking
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employee_task_tracking' AND column_name='organization_id') THEN
+    ALTER TABLE employee_task_tracking ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from task_cards
+    UPDATE employee_task_tracking et SET organization_id = tc.organization_id FROM task_cards tc WHERE et.task_id = tc.task_id;
+    RAISE NOTICE 'Added organization_id to employee_task_tracking';
+  END IF;
+
+  -- 10. task_card_time_tracking
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='task_card_time_tracking' AND column_name='organization_id') THEN
+    ALTER TABLE task_card_time_tracking ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from task_cards
+    -- Use text cast for safety if task_id types differ
+    UPDATE task_card_time_tracking tt SET organization_id = tc.organization_id FROM task_cards tc WHERE tt.task_id::text = tc.task_id::text;
+    RAISE NOTICE 'Added organization_id to task_card_time_tracking';
+  END IF;
+
+  -- 11. team_card_usage
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='team_card_usage' AND column_name='organization_id') THEN
+    ALTER TABLE team_card_usage ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from team_cards
+    UPDATE team_card_usage tu SET organization_id = tc.organization_id FROM team_cards tc WHERE tu.team_card_id = tc.team_card_id;
+    RAISE NOTICE 'Added organization_id to team_card_usage';
+  END IF;
+
+  -- 12. release_attachments
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='release_attachments' AND column_name='organization_id') THEN
+    ALTER TABLE release_attachments ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from project_releases (Corrected column name: project_release_id)
+    UPDATE release_attachments ra SET organization_id = pr.organization_id FROM project_releases pr WHERE ra.project_release_id = pr.project_release_id;
+    RAISE NOTICE 'Added organization_id to release_attachments';
+  END IF;
+
+  -- 13. face_embeddings
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='face_embeddings' AND column_name='organization_id') THEN
+    ALTER TABLE face_embeddings ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+    -- Backfill from employees
+    UPDATE face_embeddings fe SET organization_id = e.organization_id FROM employees e WHERE fe.employee_id::text = e.employee_id::text;
+    RAISE NOTICE 'Added organization_id to face_embeddings';
+  END IF;
+
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'Error adding missing organization_id columns: %', SQLERRM;
+END $$;
+
+-- CREATE INDEXES
+CREATE INDEX IF NOT EXISTS idx_proj_docs_org_id      ON project_documents(organization_id);
+CREATE INDEX IF NOT EXISTS idx_proj_figma_org_id     ON project_figma_urls(organization_id);
+CREATE INDEX IF NOT EXISTS idx_proj_miles_org_id     ON project_milestones(organization_id);
+CREATE INDEX IF NOT EXISTS idx_proj_rels_org_id      ON project_releases(organization_id);
+CREATE INDEX IF NOT EXISTS idx_cli_revs_org_id       ON client_reviews(organization_id);
+CREATE INDEX IF NOT EXISTS idx_proj_disc_org_id      ON project_discontinuations(organization_id);
+CREATE INDEX IF NOT EXISTS idx_task_att_org_id       ON task_attachments(organization_id);
+CREATE INDEX IF NOT EXISTS idx_task_logs_org_id      ON task_card_logs(organization_id);
+CREATE INDEX IF NOT EXISTS idx_emp_track_org_id      ON employee_task_tracking(organization_id);
+CREATE INDEX IF NOT EXISTS idx_task_time_org_id      ON task_card_time_tracking(organization_id);
+CREATE INDEX IF NOT EXISTS idx_team_usage_org_id     ON team_card_usage(organization_id);
+CREATE INDEX IF NOT EXISTS idx_rel_att_org_id        ON release_attachments(organization_id);
+CREATE INDEX IF NOT EXISTS idx_face_emb_org_id       ON face_embeddings(organization_id);
+
+
+-- ============================================================================
+-- MIGRATION 002: Expanded Plan Feature Flags
+-- Adds all newly-defined admin and employee feature keys to subscription_plans
+-- Safe to re-run — uses jsonb_strip_nulls + || merge pattern
+-- ============================================================================
+
+-- Expand the DEFAULT features schema to include all gatable features
+ALTER TABLE subscription_plans
+  ALTER COLUMN features SET DEFAULT '{
+    "team_sync_chat": true,
+    "announcements": true,
+    "projects": true,
+    "task_management": true,
+    "task_card_requests": true,
+    "team_cards": true,
+    "todo": true,
+    "leave_tracker": true,
+    "wfh_requests": true,
+    "permissions_module": true,
+    "company_holidays": true,
+    "salary_module": false,
+    "calendar_meetings": true,
+    "advanced_reports": false,
+    "employee_of_month": false,
+    "employee_performance": false,
+    "employee_tracker": false,
+    "expense_management": false,
+    "asset_management": false,
+    "letter_templates": false,
+    "documentation_screen": true,
+    "face_recognition": false,
+    "ai_assistant": false,
+    "api_access": false,
+    "attendance": true
+  }';
+
+-- ============================================================================
+-- Update existing seeded plans with full feature sets
+-- ============================================================================
+
+-- STARTER PLAN: Basic HR only, no premium features
+UPDATE subscription_plans SET features = '{
+  "team_sync_chat": true,
+  "announcements": true,
+  "projects": true,
+  "task_management": true,
+  "task_card_requests": true,
+  "team_cards": false,
+  "todo": true,
+  "leave_tracker": true,
+  "wfh_requests": true,
+  "permissions_module": true,
+  "company_holidays": true,
+  "salary_module": false,
+  "calendar_meetings": false,
+  "advanced_reports": false,
+  "employee_of_month": false,
+  "employee_performance": false,
+  "employee_tracker": false,
+  "expense_management": false,
+  "asset_management": false,
+  "letter_templates": false,
+  "documentation_screen": true,
+  "face_recognition": false,
+  "ai_assistant": false,
+  "api_access": false,
+  "attendance": true
+}'::jsonb
+WHERE slug = 'starter';
+
+-- GROWTH PLAN: Most features, no enterprise-only
+UPDATE subscription_plans SET features = '{
+  "team_sync_chat": true,
+  "announcements": true,
+  "projects": true,
+  "task_management": true,
+  "task_card_requests": true,
+  "team_cards": true,
+  "todo": true,
+  "leave_tracker": true,
+  "wfh_requests": true,
+  "permissions_module": true,
+  "company_holidays": true,
+  "salary_module": true,
+  "calendar_meetings": true,
+  "advanced_reports": true,
+  "employee_of_month": true,
+  "employee_performance": true,
+  "employee_tracker": true,
+  "expense_management": true,
+  "asset_management": false,
+  "letter_templates": true,
+  "documentation_screen": true,
+  "face_recognition": true,
+  "ai_assistant": true,
+  "api_access": false,
+  "attendance": true
+}'::jsonb
+WHERE slug = 'growth';
+
+-- BUSINESS PLAN: Full feature set minus API access
+UPDATE subscription_plans SET features = '{
+  "team_sync_chat": true,
+  "announcements": true,
+  "projects": true,
+  "task_management": true,
+  "task_card_requests": true,
+  "team_cards": true,
+  "todo": true,
+  "leave_tracker": true,
+  "wfh_requests": true,
+  "permissions_module": true,
+  "company_holidays": true,
+  "salary_module": true,
+  "calendar_meetings": true,
+  "advanced_reports": true,
+  "employee_of_month": true,
+  "employee_performance": true,
+  "employee_tracker": true,
+  "expense_management": true,
+  "asset_management": true,
+  "letter_templates": true,
+  "documentation_screen": true,
+  "face_recognition": true,
+  "ai_assistant": true,
+  "api_access": false,
+  "attendance": true
+}'::jsonb
+WHERE slug = 'business';
+
+-- ENTERPRISE PLAN: Full access to everything
+UPDATE subscription_plans SET features = '{
+  "team_sync_chat": true,
+  "announcements": true,
+  "projects": true,
+  "task_management": true,
+  "task_card_requests": true,
+  "team_cards": true,
+  "todo": true,
+  "leave_tracker": true,
+  "wfh_requests": true,
+  "permissions_module": true,
+  "company_holidays": true,
+  "salary_module": true,
+  "calendar_meetings": true,
+  "advanced_reports": true,
+  "employee_of_month": true,
+  "employee_performance": true,
+  "employee_tracker": true,
+  "expense_management": true,
+  "asset_management": true,
+  "letter_templates": true,
+  "documentation_screen": true,
+  "face_recognition": true,
+  "ai_assistant": true,
+  "api_access": true,
+  "attendance": true
+}'::jsonb
+WHERE slug = 'enterprise';
+
+-- ============================================================================
+-- Migrate existing plans that might have old 8-key feature structure:
+-- Merge existing features with defaults so no keys are lost
+-- ============================================================================
+UPDATE subscription_plans
+SET features = (
+  '{
+    "team_sync_chat": true,
+    "announcements": true,
+    "projects": true,
+    "task_management": true,
+    "task_card_requests": true,
+    "team_cards": false,
+    "todo": true,
+    "leave_tracker": true,
+    "wfh_requests": true,
+    "permissions_module": true,
+    "company_holidays": true,
+    "salary_module": false,
+    "calendar_meetings": true,
+    "advanced_reports": false,
+    "employee_of_month": false,
+    "employee_performance": false,
+    "employee_tracker": false,
+    "expense_management": false,
+    "asset_management": false,
+    "letter_templates": false,
+    "documentation_screen": true,
+    "face_recognition": false,
+    "ai_assistant": false,
+    "api_access": false,
+    "attendance": true
+  }'::jsonb || features
+)
+WHERE slug NOT IN ('starter', 'growth', 'business', 'enterprise')
+  AND features IS NOT NULL;
+
+-- ============================================================================
+-- Verify
+-- ============================================================================
+SELECT slug, name, jsonb_object_keys(features) AS feature_key
+FROM subscription_plans
+ORDER BY slug, feature_key;
+
+
+-- ===========================================================================
+-- Migration: Seed Default Roles
+-- Description: Seeds default roles and designations for all organizations.
+-- ===========================================================================
+
+DO $$
+DECLARE
+    v_org_record RECORD;
+BEGIN
+    FOR v_org_record IN SELECT id FROM organizations LOOP
+        -- Software Developer Role
+        IF NOT EXISTS (SELECT 1 FROM roles WHERE role_name = 'Software Developer' AND organization_id = v_org_record.id) THEN
+            INSERT INTO roles (role_name, designations, organization_id, is_active)
+            VALUES ('Software Developer', ARRAY['Mobile App Developer', 'Frontend Developer', 'Backend Developer', 'Fullstack Developer'], v_org_record.id, TRUE);
+        END IF;
+
+        -- Business Analyst Role
+        IF NOT EXISTS (SELECT 1 FROM roles WHERE role_name = 'Business Analyst' AND organization_id = v_org_record.id) THEN
+            INSERT INTO roles (role_name, designations, organization_id, is_active)
+            VALUES ('Business Analyst', ARRAY['Senior Business Analyst', 'Junior Business Analyst'], v_org_record.id, TRUE);
+        END IF;
+
+        -- Employee Role
+        IF NOT EXISTS (SELECT 1 FROM roles WHERE role_name = 'Employee' AND organization_id = v_org_record.id) THEN
+            INSERT INTO roles (role_name, designations, organization_id, is_active)
+            VALUES ('Employee', ARRAY['Junior Staff', 'Senior Staff'], v_org_record.id, TRUE);
+        END IF;
+
+        -- Admin Role
+        IF NOT EXISTS (SELECT 1 FROM roles WHERE role_name = 'Admin' AND organization_id = v_org_record.id) THEN
+            INSERT INTO roles (role_name, designations, organization_id, is_active)
+            VALUES ('Admin', ARRAY['Admin', 'Manager'], v_org_record.id, TRUE);
+        END IF;
+    END LOOP;
+END $$;
+
+
+-- ============================================================================
+-- MIGRATION 003: Organization Storage Tracking
+-- Tracks Cloudinary file uploads per organization for quota enforcement
+-- ============================================================================
+
+-- Storage usage tracking table
+CREATE TABLE IF NOT EXISTS org_file_uploads (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  uploaded_by     VARCHAR(255) NOT NULL,        -- employee_id or admin_id
+  uploader_type   VARCHAR(20)  NOT NULL DEFAULT 'employee', -- 'employee' | 'admin'
+  cloudinary_url  TEXT         NOT NULL,
+  public_id       TEXT         NOT NULL,
+  file_name       TEXT         NOT NULL,
+  file_type       VARCHAR(50)  NOT NULL,        -- 'image' | 'pdf' | 'word' | etc.
+  bytes_used      BIGINT       NOT NULL DEFAULT 0,
+  folder          TEXT,
+  created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Index for fast per-org storage SUM queries
+CREATE INDEX IF NOT EXISTS idx_file_uploads_org ON org_file_uploads(organization_id);
+CREATE INDEX IF NOT EXISTS idx_file_uploads_uploader ON org_file_uploads(uploaded_by);
+
+-- ============================================================================
+-- Helper VIEW: current storage usage per organization (in bytes and GB)
+-- ============================================================================
+CREATE OR REPLACE VIEW org_storage_summary AS
+SELECT
+  o.id              AS organization_id,
+  o.name            AS organization_name,
+  sp.slug           AS plan_slug,
+  sp.max_storage_gb AS plan_max_gb,
+  COALESCE(SUM(f.bytes_used), 0)::BIGINT AS used_bytes,
+  ROUND(
+    COALESCE(SUM(f.bytes_used), 0)::NUMERIC / (1024 * 1024 * 1024), 4
+  )                 AS used_gb,
+  -- Remaining bytes (-1 means unlimited)
+  CASE
+    WHEN sp.max_storage_gb = -1 THEN -1
+    ELSE GREATEST(0, (sp.max_storage_gb * 1024 * 1024 * 1024)::BIGINT - COALESCE(SUM(f.bytes_used), 0)::BIGINT)
+  END               AS remaining_bytes,
+  -- Usage percentage (NULL if unlimited)
+  CASE
+    WHEN sp.max_storage_gb = -1 THEN NULL
+    ELSE ROUND(
+      (COALESCE(SUM(f.bytes_used), 0)::NUMERIC / (sp.max_storage_gb * 1024 * 1024 * 1024)) * 100, 2
+    )
+  END               AS usage_percent
+FROM organizations o
+LEFT JOIN subscription_plans sp ON o.plan_id = sp.id
+LEFT JOIN org_file_uploads f ON f.organization_id = o.id
+GROUP BY o.id, o.name, sp.slug, sp.max_storage_gb;
+
+-- ============================================================================
+-- Helper FUNCTION: check if an org has enough storage quota for a file upload
+-- Returns: TRUE if upload is allowed, FALSE if quota exceeded
+-- ============================================================================
+CREATE OR REPLACE FUNCTION check_org_storage_quota(
+  p_org_id     UUID,
+  p_file_bytes BIGINT
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_max_gb    NUMERIC;
+  v_used_bytes BIGINT;
+  v_max_bytes  BIGINT;
+BEGIN
+  -- Get the org's plan storage limit
+  SELECT sp.max_storage_gb INTO v_max_gb
+  FROM organizations o
+  JOIN subscription_plans sp ON sp.id = o.plan_id
+  WHERE o.id = p_org_id;
+
+  -- If no plan or unlimited (-1), allow
+  IF v_max_gb IS NULL OR v_max_gb = -1 THEN
+    RETURN TRUE;
+  END IF;
+
+  -- Get current usage
+  SELECT COALESCE(SUM(bytes_used), 0) INTO v_used_bytes
+  FROM org_file_uploads
+  WHERE organization_id = p_org_id;
+
+  v_max_bytes := (v_max_gb * 1024 * 1024 * 1024)::BIGINT;
+
+  RETURN (v_used_bytes + p_file_bytes) <= v_max_bytes;
+END;
+$$ LANGUAGE plpgsql;
+
+

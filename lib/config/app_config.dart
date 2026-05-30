@@ -212,4 +212,10 @@ class AppConfig {
   /// Super admin JWT expiration in hours (shorter than regular users for security)
   static int get superAdminJwtExpirationHours =>
       int.tryParse(_getEnv('SUPER_ADMIN_JWT_EXPIRATION_HOURS', '4')) ?? 4;
+
+  // ---------------------------------------------------------------------------
+  // RAZORPAY CONFIGURATION
+  // ---------------------------------------------------------------------------
+  static String get razorpayKeyId => _getEnv('RAZORPAY_KEY_ID', '');
+  static String get razorpayKeySecret => _getEnv('RAZORPAY_KEY_SECRET', '');
 }

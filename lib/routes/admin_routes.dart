@@ -10,6 +10,8 @@ import '../services/unified_notification_service.dart';
 import '../core/utils/logger.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/rbac/rbac_constants.dart';
+import '../core/middleware/tenant_middleware.dart';
+import '../data/repositories/organization_repository.dart';
 
 /// Admin routes for CRUD operations
 class AdminRoutes {
@@ -17,6 +19,7 @@ class AdminRoutes {
   final AdminRepository _adminRepository = AdminRepository();
   final EmployeeRepository _employeeRepository = EmployeeRepository();
   final UserRepository _userRepository = UserRepository();
+  final OrganizationRepository _orgRepository = OrganizationRepository();
   final EmailService _emailService = EmailService();
   final AppLogger logger = AppLogger('AdminRoutes');
 
@@ -290,6 +293,34 @@ class AdminRoutes {
       final email = data['admin_personal_email'].toString().trim();
       final adminId = data['admin_id'].toString().trim();
       final phone = data['admin_phone_num']?.toString().trim();
+
+      // Get current organization context
+      final orgId = getCurrentOrganizationId();
+      
+      // SaaS Plan Enforcements: check max_admins
+      if (orgId != null && orgId.isNotEmpty) {
+        final limits = await _orgRepository.getPlanLimits(orgId);
+        if (limits != null) {
+          final maxAdmins = limits['max_admins'] as int? ?? 2; // defaults to 2 if missing
+          if (maxAdmins != -1) { // -1 means unlimited
+            final activeCount = await _adminRepository.countActiveAdminsByOrg(orgId);
+            if (activeCount >= maxAdmins) {
+              return Response(
+                403,
+                body: jsonEncode({
+                  'success': false,
+                  'message': 'You have reached the maximum number of admins ($maxAdmins) allowed on your current plan. Please upgrade to add more.',
+                  'error': {
+                    'code': 'PLAN_LIMIT_EXCEEDED',
+                    'message': 'Admin limit reached'
+                  }
+                }),
+                headers: {'content-type': 'application/json'},
+              );
+            }
+          }
+        }
+      }
 
       // Check if admin with same admin_id exists
       final existingById = await _adminRepository.getById(adminId);

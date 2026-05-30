@@ -7,6 +7,7 @@ import '../services/auth_service.dart';
 import '../core/response/api_response.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/utils/logger.dart';
+import '../data/database/connection.dart';
 
 /// Routes for file upload operations
 class UploadRoutes {
@@ -108,6 +109,29 @@ class UploadRoutes {
         ).toShelfResponse(statusCode: 400);
       }
 
+      // ── Storage quota check ────────────────────────────────────────────────
+      // Read org_id from the user token; skip check if not available yet
+      final orgId = user.organizationId;
+      if (orgId != null && orgId.isNotEmpty) {
+        try {
+          final quotaRows = await DatabaseConnection.query(
+            'SELECT check_org_storage_quota(@orgId::uuid, @bytes) AS allowed',
+            values: {'orgId': orgId, 'bytes': fileBytes.length},
+          );
+          final allowed = quotaRows.isNotEmpty && quotaRows.first['allowed'] == true;
+          if (!allowed) {
+            return ApiResponse.error(
+              code: 'STORAGE_QUOTA_EXCEEDED',
+              message: 'Storage limit reached for your plan. Please upgrade or delete old files.',
+            ).toShelfResponse(statusCode: 403);
+          }
+        } catch (e) {
+          // If the quota function doesn't exist yet (migration not run), allow upload
+          _logger.warning('Storage quota check skipped (migration not applied?): $e');
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       _logger.info('Uploading file: $fileName (${fileBytes.length} bytes)');
 
       // Upload to Cloudinary
@@ -119,6 +143,41 @@ class UploadRoutes {
 
       if (result['success'] == true) {
         _logger.info('File uploaded successfully: ${result['url']}');
+
+        // ── Record storage usage ───────────────────────────────────────────
+        // orgId comes from the JWT payload (set during login)
+        final uploadOrgId = user.organizationId;
+        if (uploadOrgId != null && uploadOrgId.isNotEmpty) {
+          try {
+            await DatabaseConnection.execute(
+              '''
+              INSERT INTO org_file_uploads
+                (organization_id, uploaded_by, uploader_type, cloudinary_url,
+                 public_id, file_name, file_type, bytes_used, folder)
+              VALUES
+                (@orgId::uuid, @uploadedBy, @uploaderType, @url,
+                 @publicId, @fileName, @fileType, @bytes, @folder)
+              ''',
+              values: {
+                'orgId':        uploadOrgId,
+                'uploadedBy':   user.id,
+                'uploaderType': user.role.toLowerCase() == 'admin' ? 'admin' : 'employee',
+                'url':          result['url'],
+                'publicId':     result['publicId'],
+                'fileName':     fileName,
+                'fileType':     CloudinaryService.getFileCategory(fileName),
+                'bytes':        result['bytes'] ?? fileBytes.length,
+                'folder':       folder,
+              },
+            );
+            _logger.info('Recorded ${result['bytes'] ?? fileBytes.length} bytes for org $uploadOrgId');
+          } catch (e) {
+            // Log but don't fail the upload — file is already on Cloudinary
+            _logger.warning('Failed to record storage usage: $e');
+          }
+        }
+        // ──────────────────────────────────────────────────────────────────
+
         return ApiResponse.success(
           message: 'File uploaded successfully',
           data: {

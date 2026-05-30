@@ -601,4 +601,18 @@ class AdminRepository {
       );
     }
   }
+
+  /// Count active admins by organization
+  Future<int> countActiveAdminsByOrg(String orgId) async {
+    try {
+      final sql = 'SELECT COUNT(*) as count FROM admins WHERE status = 1 AND organization_id = @orgId::uuid';
+      final result = await DatabaseConnection.queryOne(sql, values: {'orgId': orgId});
+      final count = result?['count'];
+      if (count is num) return count.toInt();
+      return 0;
+    } catch (e) {
+      logger.error('Error counting active admins by org: $e');
+      return 0;
+    }
+  }
 }

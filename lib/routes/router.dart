@@ -44,6 +44,8 @@ import 'salary_calculation_routes.dart';
 import 'letter_template_routes.dart';
 import 'certificate_content_template_routes.dart';
 import 'super_admin_routes.dart';
+import 'billing_routes.dart';
+import '../core/middleware/feature_middleware.dart';
 
 /// Main application router
 class AppRouter {
@@ -93,6 +95,7 @@ class AppRouter {
   final CertificateContentTemplateRoutes _certificateContentRoutes =
       CertificateContentTemplateRoutes();
   final SuperAdminRoutes _superAdminRoutes = SuperAdminRoutes();
+  final BillingRoutes _billingRoutes = BillingRoutes();
 
   Router get router {
     // Mount auth routes (public endpoints)
@@ -136,10 +139,25 @@ class AppRouter {
     _router.mount('/api/', _employeeDocumentRoutes.router.call);
 
     // Mount leave tracker routes (leaves, permissions, WFH)
-    _router.mount('/api/', _leaveRoutes.router.call);
-    _router.mount('/api/', _permissionRoutes.router.call);
-    _router.mount('/api/', _wfhRoutes.router.call);
-    _router.mount('/api/', _leavePolicyRoutes.router.call);
+    final leaveTrackerHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('leave_tracker'))
+        .addHandler(_leaveRoutes.router.call);
+    _router.mount('/api/', leaveTrackerHandler);
+
+    final permissionHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('leave_tracker'))
+        .addHandler(_permissionRoutes.router.call);
+    _router.mount('/api/', permissionHandler);
+
+    final wfhHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('wfh_requests'))
+        .addHandler(_wfhRoutes.router.call);
+    _router.mount('/api/', wfhHandler);
+
+    final leavePolicyHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('leave_tracker'))
+        .addHandler(_leavePolicyRoutes.router.call);
+    _router.mount('/api/', leavePolicyHandler);
 
     // Mount file upload routes
     _router.mount('/api/', _uploadRoutes.router.call);
@@ -166,7 +184,10 @@ class AppRouter {
     _router.mount('/api/', _officeLocationRoutes.router.call);
 
     // Mount TeamSync chat routes (includes WebSocket endpoint)
-    _router.mount('/api/', _chatRoutes.router.call);
+    final teamSyncHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('team_sync_chat'))
+        .addHandler(_chatRoutes.router.call);
+    _router.mount('/api/', teamSyncHandler);
 
     // Mount report routes (daily reports)
     _router.mount('/api/', _reportRoutes.router.call);
@@ -181,7 +202,10 @@ class AppRouter {
     _router.mount('/api/home', _homeRoutes.router.call);
 
     // Mount face recognition routes (biometric kiosk)
-    _router.mount('/api/', _faceRoutes.router.call);
+    final faceRecognitionHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('face_recognition'))
+        .addHandler(_faceRoutes.router.call);
+    _router.mount('/api/', faceRecognitionHandler);
 
     // Mount employee tracker routes (admin employee tracking)
     _router.mount('/api/', _employeeTrackerRoutes.router.call);
@@ -202,13 +226,19 @@ class AppRouter {
     _router.mount('/api/settings/', _settingsRoutes.router.call);
 
     // Mount AI Chat routes (LLM-powered assistant)
-    _router.mount('/api/', _aiRoutes.router.call);
+    final aiChatHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('ai_assistant'))
+        .addHandler(_aiRoutes.router.call);
+    _router.mount('/api/', aiChatHandler);
 
     // Mount Calendar Meeting routes (scheduling, venue, participants)
     _router.mount('/api/', _calendarMeetingRoutes.router.call);
 
     // Mount Salary Calculation routes (HRMS)
-    _router.mount('/api/', _salaryRoutes.router.call);
+    final salaryHandler = Pipeline()
+        .addMiddleware(FeatureMiddleware.requireFeature('salary_module'))
+        .addHandler(_salaryRoutes.router.call);
+    _router.mount('/api/', salaryHandler);
 
     // Mount Letter Template routes
     _router.mount('/api/', _letterTemplateRoutes.router.call);
@@ -218,6 +248,9 @@ class AppRouter {
 
     // ── SUPER ADMIN ROUTES (Separate JWT, mounted under /super/) ──────────
     _router.mount('/super/', _superAdminRoutes.router.call);
+
+    // Mount Billing routes (Subscription plans, Razorpay)
+    _router.mount('/api/billing', _billingRoutes.router.call);
 
     // Health check endpoint
     _router.get('/health', _healthCheck);

@@ -9,6 +9,7 @@ import '../data/repositories/user_repository.dart';
 import '../core/response/api_response.dart';
 import '../core/utils/logger.dart';
 import '../config/app_config.dart';
+import '../data/database/connection.dart';
 
 /// All Super Admin endpoints — mounted under /super/ in the main router.
 /// These routes use a SEPARATE JWT secret from the regular admin/employee routes.
@@ -43,12 +44,15 @@ class SuperAdminRoutes {
     r.post('/organizations/<id>/admins',   _createOrgAdmin);
 
     // ── SUBSCRIPTION PLANS ────────────────────────────────────────────────
-    r.get('/plans',       _listPlans);
-    r.post('/plans',      _createPlan);
-    r.put('/plans/<id>',  _updatePlan);
+    r.get('/plans',           _listPlans);
+    r.post('/plans',          _createPlan);
+    r.get('/plans/<id>',      _getPlan);
+    r.put('/plans/<id>',      _updatePlan);
+    r.delete('/plans/<id>',   _deletePlan);
 
     // ── ANALYTICS ─────────────────────────────────────────────────────────
     r.get('/analytics/overview', _analyticsOverview);
+    r.get('/analytics/storage',  _storageAnalytics);
 
     // ── SUPER ADMINS ──────────────────────────────────────────────────────
     r.get('/admins',  _listSuperAdmins);
@@ -539,6 +543,43 @@ class SuperAdminRoutes {
     }
   }
 
+  Future<Response> _getPlan(Request req, String id) async {
+    if (_requireAuth(req) == null) return _unauthorized();
+    try {
+      final plan = await _repo.getPlanById(id);
+      if (plan == null) {
+        return ApiResponse.error(code: 'NOT_FOUND', message: 'Plan not found').toShelfResponse(statusCode: 404);
+      }
+      return ApiResponse.success(data: plan).toShelfResponse();
+    } catch (e, st) {
+      _log.error('getPlan error: $e', e, st);
+      return ApiResponse.error(code: 'INTERNAL_ERROR', message: 'Failed to fetch plan').toShelfResponse(statusCode: 500);
+    }
+  }
+
+  Future<Response> _deletePlan(Request req, String id) async {
+    final payload = _requireAuth(req);
+    if (payload == null) return _unauthorized();
+    try {
+      final saId    = payload['id']?.toString() ?? '';
+      final saEmail = payload['email']?.toString() ?? '';
+      final existing = await _repo.getPlanById(id);
+      if (existing == null) {
+        return ApiResponse.error(code: 'NOT_FOUND', message: 'Plan not found').toShelfResponse(statusCode: 404);
+      }
+      await _repo.deletePlan(id);
+      await _repo.writeAuditLog(
+        superAdminId: saId, superAdminEmail: saEmail,
+        action: 'DELETE_PLAN', targetType: 'plan', targetId: id, targetName: existing['name']?.toString(),
+        ipAddress: _clientIp(req),
+      );
+      return ApiResponse.success(message: 'Plan deleted').toShelfResponse();
+    } catch (e, st) {
+      _log.error('deletePlan error: $e', e, st);
+      return ApiResponse.error(code: 'INTERNAL_ERROR', message: 'Failed to delete plan').toShelfResponse(statusCode: 500);
+    }
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // ANALYTICS
   // ──────────────────────────────────────────────────────────────────────────
@@ -551,6 +592,32 @@ class SuperAdminRoutes {
     } catch (e, st) {
       _log.error('analyticsOverview error: $e', e, st);
       return ApiResponse.error(code: 'INTERNAL_ERROR', message: 'Failed to fetch analytics').toShelfResponse(statusCode: 500);
+    }
+  }
+
+  Future<Response> _storageAnalytics(Request req) async {
+    if (_requireAuth(req) == null) return _unauthorized();
+    try {
+      // Reads from the org_storage_summary VIEW created in migration 003
+      final rows = await DatabaseConnection.query(
+        '''
+        SELECT
+          organization_id::text,
+          organization_name,
+          plan_slug,
+          plan_max_gb::text,
+          used_bytes,
+          used_gb::text,
+          remaining_bytes,
+          usage_percent::text
+        FROM org_storage_summary
+        ORDER BY used_bytes DESC
+        ''',
+      );
+      return ApiResponse.success(data: rows, message: 'Storage analytics fetched').toShelfResponse();
+    } catch (e, st) {
+      _log.error('storageAnalytics error: $e', e, st);
+      return ApiResponse.error(code: 'INTERNAL_ERROR', message: 'Failed to fetch storage analytics').toShelfResponse(statusCode: 500);
     }
   }
 

@@ -205,6 +205,9 @@ class OrganizationRepository {
         'industry': 'industry', 'size_range': 'sizeRange', 'country': 'country',
         'timezone': 'timezone', 'contact_email': 'contactEmail',
         'contact_phone': 'contactPhone', 'notes': 'notes',
+        'status': 'status', 
+        'subscription_starts_at': 'subscriptionStartsAt',
+        'subscription_ends_at': 'subscriptionEndsAt',
       };
 
       for (final entry in fields.entries) {
@@ -399,6 +402,20 @@ class OrganizationRepository {
     }
   }
 
+  /// Soft-delete a plan: mark as inactive (prevents orgs using it from breaking)
+  Future<bool> deletePlan(String id) async {
+    try {
+      await DatabaseConnection.execute(
+        'UPDATE subscription_plans SET is_active = FALSE, is_public = FALSE WHERE id = @id::uuid',
+        values: {'id': id},
+      );
+      return true;
+    } catch (e, st) {
+      _log.error('deletePlan error: $e', e, st);
+      return false;
+    }
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // SUPER ADMINS
   // ──────────────────────────────────────────────────────────────────────────
@@ -468,8 +485,35 @@ class OrganizationRepository {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // HELPERS
+  // HELPERS & PLAN LIMITS
   // ──────────────────────────────────────────────────────────────────────────
+
+  Future<Map<String, dynamic>?> getPlanLimits(String orgId) async {
+    return DatabaseConnection.queryOne('''
+      SELECT sp.max_employees, sp.max_admins, sp.max_projects, sp.max_storage_gb::text
+      FROM organizations o
+      LEFT JOIN subscription_plans sp ON o.plan_id = sp.id
+      WHERE o.id = @orgId::uuid
+    ''', values: {'orgId': orgId});
+  }
+
+  Future<Map<String, dynamic>?> getPlanFeatures(String orgId) async {
+    final row = await DatabaseConnection.queryOne('''
+      SELECT sp.features::text
+      FROM organizations o
+      LEFT JOIN subscription_plans sp ON o.plan_id = sp.id
+      WHERE o.id = @orgId::uuid
+    ''', values: {'orgId': orgId});
+    
+    if (row != null && row['features'] != null) {
+      try {
+        return jsonDecode(row['features'] as String) as Map<String, dynamic>;
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
+  }
 
   String _generateSlug(String name) {
     return name

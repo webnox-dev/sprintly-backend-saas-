@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'dart:math';
 import '../domain/models/user.dart';
@@ -205,6 +206,19 @@ class AuthService {
 
       logger.info('LOGIN SUCCESS: $email logged in successfully');
       logger.info('=== LOGIN COMPLETE ===');
+      
+      // Fetch plan features to include in frontend state
+      Map<String, dynamic>? planFeatures;
+      if (targetOrgId != null) {
+        final org = await organizationRepository.getById(targetOrgId);
+        if (org != null && org['plan_features'] != null) {
+          try {
+            planFeatures = jsonDecode(org['plan_features'] as String) as Map<String, dynamic>;
+          } catch (e) {
+            logger.warning('Failed to parse plan_features for org $targetOrgId: $e');
+          }
+        }
+      }
 
       return {
         'success': true,
@@ -216,6 +230,7 @@ class AuthService {
           'email': email,
           'role': role,
           'name': userName,
+          'plan_features': planFeatures,
           'expiresIn': AppConfig.jwtExpirationHours * 3600,
         },
       };
@@ -398,6 +413,19 @@ class AuthService {
         isMainDevice: sessionCount == 0,
       );
 
+      // Fetch plan features to include in frontend state
+      Map<String, dynamic>? planFeatures;
+      if (employee.organizationId != null) {
+        final org = await organizationRepository.getById(employee.organizationId!);
+        if (org != null && org['plan_features'] != null) {
+          try {
+            planFeatures = jsonDecode(org['plan_features'] as String) as Map<String, dynamic>;
+          } catch (e) {
+            logger.warning('Failed to parse plan_features for org ${employee.organizationId}: $e');
+          }
+        }
+      }
+
       return {
         'success': true,
         'message': 'Login successful',
@@ -406,6 +434,7 @@ class AuthService {
           'employeeId': user.employeeId,
           'email': email,
           'role': 'Employee',
+          'plan_features': planFeatures,
           'expiresIn': AppConfig.jwtExpirationHours * 3600,
         },
       };

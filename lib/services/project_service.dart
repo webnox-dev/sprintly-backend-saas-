@@ -4,6 +4,8 @@ import '../data/repositories/admin_repository.dart';
 import '../domain/models/project.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/utils/logger.dart';
+import '../core/middleware/tenant_middleware.dart';
+import '../data/repositories/organization_repository.dart';
 import 'unified_notification_service.dart';
 import 'email_service.dart';
 
@@ -12,6 +14,7 @@ class ProjectService {
   final ProjectRepository _repository = ProjectRepository();
   final EmployeeRepository _employeeRepository = EmployeeRepository();
   final AdminRepository _adminRepository = AdminRepository();
+  final OrganizationRepository _orgRepository = OrganizationRepository();
   final EmailService _emailService = EmailService();
   final AppLogger _logger = AppLogger('ProjectService');
 
@@ -126,6 +129,26 @@ class ProjectService {
   /// Create a new project with validation
   Future<Project> createProject(Map<String, dynamic> data) async {
     try {
+      // Get current organization context
+      final orgId = getCurrentOrganizationId();
+      
+      // SaaS Plan Enforcements: check max_projects
+      if (orgId != null && orgId.isNotEmpty) {
+        final limits = await _orgRepository.getPlanLimits(orgId);
+        if (limits != null) {
+          final maxProjects = limits['max_projects'] as int? ?? 1; // defaults to 1 if missing
+          if (maxProjects != -1) { // -1 means unlimited
+            final activeCount = await _repository.countActiveProjectsByOrg(orgId);
+            if (activeCount >= maxProjects) {
+              throw AppException(
+                code: 'PLAN_LIMIT_EXCEEDED',
+                message: 'You have reached the maximum number of projects ($maxProjects) allowed on your current plan. Please upgrade to add more.',
+              );
+            }
+          }
+        }
+      }
+
       final errors = <String, List<String>>{};
 
       // Required field validation

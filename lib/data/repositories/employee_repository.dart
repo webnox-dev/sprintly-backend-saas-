@@ -507,6 +507,20 @@ class EmployeeRepository {
     }
   }
 
+  /// Count active employees by organization
+  Future<int> countActiveByOrg(String orgId) async {
+    try {
+      final sql = 'SELECT COUNT(*) as count FROM employees WHERE status = 1 AND organization_id = @orgId::uuid';
+      final result = await DatabaseConnection.queryOne(sql, values: {'orgId': orgId});
+      final count = result?['count'];
+      if (count is num) return count.toInt();
+      return 0;
+    } catch (e) {
+      _logger.error('Error counting active employees by org: $e');
+      return 0;
+    }
+  }
+
   /// Get present employees (who actually punched in)
   Future<List<Map<String, dynamic>>> getPresentEmployees(String date) async {
     try {

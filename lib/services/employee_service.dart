@@ -3,6 +3,7 @@ import '../../data/repositories/employee_repository.dart';
 import '../../data/repositories/admin_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/otp_helper_repository.dart';
+import '../../data/repositories/organization_repository.dart';
 import '../../core/exceptions/app_exception.dart';
 import '../../core/utils/validators.dart';
 import '../../core/utils/logger.dart';
@@ -19,6 +20,7 @@ class EmployeeService {
   final AdminRepository _adminRepository = AdminRepository();
   final UserRepository _userRepository = UserRepository();
   final OTPHelperRepository _otpRepository = OTPHelperRepository();
+  final OrganizationRepository _orgRepository = OrganizationRepository();
   final EmailService _emailService = EmailService();
   final AppLogger _logger = AppLogger('EmployeeService');
 
@@ -123,6 +125,23 @@ class EmployeeService {
 
     // Get current organization context
     final orgId = getCurrentOrganizationId();
+    
+    // SaaS Plan Enforcements: check max_employees
+    if (orgId != null && orgId.isNotEmpty) {
+      final limits = await _orgRepository.getPlanLimits(orgId);
+      if (limits != null) {
+        final maxEmployees = limits['max_employees'] as int? ?? 10; // defaults to 10 if missing
+        if (maxEmployees != -1) { // -1 means unlimited
+          final activeCount = await _repository.countActiveByOrg(orgId);
+          if (activeCount >= maxEmployees) {
+            throw AppException(
+              code: 'PLAN_LIMIT_EXCEEDED',
+              message: 'You have reached the maximum number of employees ($maxEmployees) allowed on your current plan. Please upgrade to add more.',
+            );
+          }
+        }
+      }
+    }
 
     // Check if employee ID already exists
     final exists = await _repository.existsById(empId);

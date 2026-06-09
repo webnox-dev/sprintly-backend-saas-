@@ -202,11 +202,27 @@ class AdminRoutes {
         );
       }
 
+      // Fetch plan features
+      Map<String, dynamic>? planFeatures;
+      if (admin.organizationId != null) {
+        final org = await _orgRepository.getById(admin.organizationId!);
+        if (org != null && org['plan_features'] != null) {
+          try {
+            planFeatures = jsonDecode(org['plan_features'] as String) as Map<String, dynamic>;
+          } catch (_) {}
+        }
+      }
+
+      final responseData = admin.toJson();
+      if (planFeatures != null) {
+        responseData['plan_features'] = planFeatures;
+      }
+
       return Response.ok(
         jsonEncode({
           'success': true,
           'message': 'Admin fetched successfully',
-          'data': admin.toJson(),
+          'data': responseData,
         }),
         headers: {'content-type': 'application/json'},
       );
@@ -250,11 +266,27 @@ class AdminRoutes {
         );
       }
 
+      // Fetch plan features
+      Map<String, dynamic>? planFeatures;
+      if (admin.organizationId != null) {
+        final org = await _orgRepository.getById(admin.organizationId!);
+        if (org != null && org['plan_features'] != null) {
+          try {
+            planFeatures = jsonDecode(org['plan_features'] as String) as Map<String, dynamic>;
+          } catch (_) {}
+        }
+      }
+
+      final responseData = admin.toJson();
+      if (planFeatures != null) {
+        responseData['plan_features'] = planFeatures;
+      }
+
       return Response.ok(
         jsonEncode({
           'success': true,
           'message': 'Admin details fetched successfully',
-          'data': admin.toJson(),
+          'data': responseData,
         }),
         headers: {'content-type': 'application/json'},
       );

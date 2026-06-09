@@ -128,36 +128,47 @@ class DatabaseConnection {
     }
 
     try {
-      Result result;
-
-      if (finalValues.isNotEmpty) {
-        result = await pool.execute(Sql.named(finalSql), parameters: finalValues);
-      } else {
-        result = await pool.execute(finalSql);
-      }
-
-      // Convert Result to list of maps
-      if (result.isEmpty) {
-        return [];
-      }
-
-      final List<Map<String, dynamic>> rows = [];
-      for (final row in result) {
-        final Map<String, dynamic> rowMap = {};
-        for (final column in result.schema.columns) {
-          rowMap[column.columnName!] = row.toColumnMap()[column.columnName];
+      return await pool.withConnection((connection) async {
+        // Set RLS variables for this connection session
+        if (organizationId != null && organizationId.isNotEmpty) {
+          await connection.execute(
+            Sql.named("SELECT set_config('app.current_tenant', @orgId, false)"),
+            parameters: {'orgId': organizationId},
+          );
+          await connection.execute("SET app.bypass_rls = 'false'");
+        } else {
+          await connection.execute("SET app.current_tenant = ''");
+          await connection.execute("SET app.bypass_rls = 'true'");
         }
-        rows.add(rowMap);
-      }
 
-      return rows;
+        Result result;
+        if (finalValues.isNotEmpty) {
+          result = await connection.execute(Sql.named(finalSql), parameters: finalValues);
+        } else {
+          result = await connection.execute(finalSql);
+        }
+
+        // Convert Result to list of maps
+        if (result.isEmpty) {
+          return [];
+        }
+
+        final List<Map<String, dynamic>> rows = [];
+        for (final row in result) {
+          final Map<String, dynamic> rowMap = {};
+          for (final column in result.schema.columns) {
+            rowMap[column.columnName!] = row.toColumnMap()[column.columnName];
+          }
+          rows.add(rowMap);
+        }
+
+        return rows;
+      });
     } catch (e, stackTrace) {
       // Don't log SQL or values to avoid info leakage if it propagates
       _logger.error('Database query error: $e', stackTrace);
       throw DatabaseException(
         message: 'Database query failed.',
-        // Only keep original error for internal logging/debugging if needed
-        // but hide it from the message that might go to the client
       );
     }
   }
@@ -193,15 +204,28 @@ class DatabaseConnection {
     }
 
     try {
-      Result result;
+      return await pool.withConnection((connection) async {
+        // Set RLS variables for this connection session
+        if (organizationId != null && organizationId.isNotEmpty) {
+          await connection.execute(
+            Sql.named("SELECT set_config('app.current_tenant', @orgId, false)"),
+            parameters: {'orgId': organizationId},
+          );
+          await connection.execute("SET app.bypass_rls = 'false'");
+        } else {
+          await connection.execute("SET app.current_tenant = ''");
+          await connection.execute("SET app.bypass_rls = 'true'");
+        }
 
-      if (finalValues.isNotEmpty) {
-        result = await pool.execute(Sql.named(finalSql), parameters: finalValues);
-      } else {
-        result = await pool.execute(finalSql);
-      }
+        Result result;
+        if (finalValues.isNotEmpty) {
+          result = await connection.execute(Sql.named(finalSql), parameters: finalValues);
+        } else {
+          result = await connection.execute(finalSql);
+        }
 
-      return result.affectedRows;
+        return result.affectedRows;
+      });
     } catch (e, stackTrace) {
       _logger.error('Database execute error: $e', stackTrace);
       throw DatabaseException(
@@ -215,10 +239,22 @@ class DatabaseConnection {
     Future<T> Function(Session) callback,
   ) async {
     final pool = getPool();
+    final organizationId = getCurrentOrganizationId();
 
     try {
        return await pool.withConnection((connection) async {
          return await connection.runTx((session) async {
+           // Set RLS variables local to this transaction
+            if (organizationId != null && organizationId.isNotEmpty) {
+              await session.execute(
+                Sql.named("SELECT set_config('app.current_tenant', @orgId, true)"),
+                parameters: {'orgId': organizationId},
+              );
+              await session.execute("SET LOCAL app.bypass_rls = 'false'");
+           } else {
+             await session.execute("SELECT set_config('app.current_tenant', '', true)");
+             await session.execute("SET LOCAL app.bypass_rls = 'true'");
+           }
            return await callback(session);
          });
        });
@@ -250,7 +286,29 @@ class DatabaseConnection {
       'SUPER_ADMIN_AUDIT_LOGS',
       'VERSION_RELEASES',
       'FUTURE_PLANS',
-      'SYSTEM_TASK_LOGS'
+      'SYSTEM_TASK_LOGS',
+      'SESSIONS',
+      'PASSWORD_RESET_HELPER',
+      'DOCUMENT_TYPES',
+      'OFFICE_LOCATIONS',
+      'CHAT_MESSAGE_REACTIONS',
+      'CHAT_MESSAGE_STATUS',
+      'CHAT_MESSAGES',
+      'CHAT_PARTICIPANTS',
+      'CHAT_STARRED_MESSAGES',
+      'CHAT_USER_PRESENCE',
+      'DAILY_STATUS_NOTIFICATIONS',
+      'EMPLOYEE_EOM_POINTS_DAILY',
+      'EMPLOYEE_MONTHLY_RANKINGS',
+      'EMPLOYEE_OF_THE_MONTH',
+      'EOM_POINTS_CONFIG',
+      'LEAVE_POLICY_CONFIG',
+      'LETTER_TEMPLATES',
+      'NOTIFICATIONS',
+      'SALARY_COMPONENTS',
+      'SALARY_RANGES',
+      'AUTH.USERS',
+      'USERS'
     ];
 
     for (final table in globalTables) {

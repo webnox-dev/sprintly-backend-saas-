@@ -65,6 +65,7 @@ class AuthService {
         userName = admin.adminName;
         employeeId = admin.adminId;
         organizationId = admin.organizationId;
+        targetOrgId = admin.organizationId;
       } else {
         logger.info('Checking employee membership...');
         final employee = organizationId != null

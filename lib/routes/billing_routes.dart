@@ -35,6 +35,11 @@ class BillingRoutes {
         jsonEncode({
           'success': true,
           'data': plans,
+        }, toEncodable: (item) {
+          if (item is DateTime) {
+            return item.toIso8601String();
+          }
+          return item;
         }),
         headers: {'content-type': 'application/json'},
       );
@@ -65,9 +70,9 @@ class BillingRoutes {
       // Fetch the actual usage from the database
       final usageRow = await DatabaseConnection.queryOne('''
         SELECT 
-          (SELECT COUNT(*) FROM auth.users WHERE role = 'Employee' AND reference_id IN (SELECT id::text FROM employees WHERE org_id = @orgId::uuid AND is_active = 1)) as employee_count,
-          (SELECT COUNT(*) FROM projects WHERE org_id = @orgId::uuid) as project_count,
-          (SELECT COALESCE(SUM(size_bytes), 0) FROM organization_storage_logs WHERE org_id = @orgId::uuid) as total_storage_bytes
+          (SELECT COUNT(*)::int FROM employees WHERE organization_id = @orgId::uuid AND status = 1) as employee_count,
+          (SELECT COUNT(*)::int FROM projects WHERE organization_id = @orgId::uuid) as project_count,
+          (SELECT COALESCE(SUM(bytes_used), 0)::bigint FROM org_file_uploads WHERE organization_id = @orgId::uuid) as total_storage_bytes
       ''', values: {'orgId': orgId});
       
       return Response.ok(
@@ -151,7 +156,7 @@ class BillingRoutes {
         body: jsonEncode({
           'amount': amountInPaise,
           'currency': 'INR',
-          'receipt': 'receipt_org_$orgId',
+          'receipt': 'org_${orgId.replaceAll('-', '')}',
           'notes': {
             'org_id': orgId,
             'plan_id': planId,

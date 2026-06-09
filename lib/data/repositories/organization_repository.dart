@@ -339,13 +339,13 @@ class OrganizationRepository {
 
   Future<List<Map<String, dynamic>>> getAllPlans() async {
     return DatabaseConnection.query(
-      'SELECT id::text, name, slug, description, max_employees, max_admins, max_projects, max_storage_gb::text, features::text, is_active, is_public, sort_order, created_at FROM subscription_plans ORDER BY sort_order',
+      'SELECT id::text, name, slug, description, price::text, max_employees, max_admins, max_projects, max_storage_gb::text, features::text, is_active, is_public, sort_order, created_at FROM subscription_plans ORDER BY sort_order',
     );
   }
 
   Future<Map<String, dynamic>?> getPlanById(String id) async {
     return DatabaseConnection.queryOne(
-      'SELECT id::text, name, slug, description, max_employees, max_admins, max_projects, max_storage_gb::text, features::text, is_active, is_public, sort_order FROM subscription_plans WHERE id = @id::uuid',
+      'SELECT id::text, name, slug, description, price::text, max_employees, max_admins, max_projects, max_storage_gb::text, features::text, is_active, is_public, sort_order FROM subscription_plans WHERE id = @id::uuid',
       values: {'id': id},
     );
   }
@@ -490,7 +490,7 @@ class OrganizationRepository {
 
   Future<Map<String, dynamic>?> getPlanLimits(String orgId) async {
     return DatabaseConnection.queryOne('''
-      SELECT sp.max_employees, sp.max_admins, sp.max_projects, sp.max_storage_gb::text
+      SELECT sp.max_employees, sp.max_admins, sp.max_projects, sp.max_storage_gb::text, o.plan_id::text
       FROM organizations o
       LEFT JOIN subscription_plans sp ON o.plan_id = sp.id
       WHERE o.id = @orgId::uuid

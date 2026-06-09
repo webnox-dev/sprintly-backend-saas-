@@ -441,6 +441,27 @@ class SuperAdminRoutes {
         return ApiResponse.error(code: 'NOT_FOUND', message: 'Organization not found').toShelfResponse(statusCode: 404);
       }
 
+      final adminId = data['admin_id']?.toString().trim();
+      final email = data['admin_personal_email']?.toString().trim();
+
+      // Check if admin with same admin_id exists
+      final existingById = await _adminRepo.getById(adminId!);
+      if (existingById != null) {
+        return ApiResponse.error(
+          code: 'CONFLICT',
+          message: 'Admin ID "$adminId" already exists. Please use a different Admin ID.',
+        ).toShelfResponse(statusCode: 409);
+      }
+
+      // Check if admin with same email exists
+      final existingByEmail = await _adminRepo.getByEmail(email!);
+      if (existingByEmail != null) {
+        return ApiResponse.error(
+          code: 'CONFLICT',
+          message: 'Email "$email" is already registered with another admin.',
+        ).toShelfResponse(statusCode: 409);
+      }
+
       // 1. Create the Admin record with Super Admin role
       final adminData = Map<String, dynamic>.from(data);
       adminData['admin_role'] = 'Super Admin';
@@ -465,8 +486,7 @@ class SuperAdminRoutes {
         action:          'CREATE_ORG_ADMIN',
         targetType:      'admin',
         targetId:        admin.adminId,
-        targetName:      admin.adminName,
-        details:         {'organization_id': id, 'organization_name': org['name']},
+        targetName:      data['admin_name']?.toString(),
         ipAddress:       _clientIp(req),
       );
 
@@ -521,20 +541,39 @@ class SuperAdminRoutes {
     final payload = _requireAuth(req);
     if (payload == null) return _unauthorized();
     try {
-      final data    = jsonDecode(await req.readAsString()) as Map<String, dynamic>;
-      final saId    = payload['id']?.toString() ?? '';
+      final data = jsonDecode(await req.readAsString()) as Map<String, dynamic>;
+      final saId = payload['id']?.toString() ?? '';
       final saEmail = payload['email']?.toString() ?? '';
 
+      // Load existing plan to merge features
       final existing = await _repo.getPlanById(id);
       if (existing == null) {
         return ApiResponse.error(code: 'NOT_FOUND', message: 'Plan not found').toShelfResponse(statusCode: 404);
       }
 
+      // Merge features: keep existing unless overridden
+      Map<String, dynamic> mergedFeatures = {};
+      if (existing['features'] != null) {
+        try {
+          mergedFeatures = jsonDecode(existing['features'] as String) as Map<String, dynamic>;
+        } catch (_) {}
+      }
+      if (data.containsKey('features')) {
+        final incoming = data['features'] as Map<String, dynamic>;
+        mergedFeatures.addAll(incoming);
+      }
+      data['features'] = mergedFeatures;
+
       await _repo.updatePlan(id, data);
       await _repo.writeAuditLog(
-        superAdminId: saId, superAdminEmail: saEmail,
-        action: 'UPDATE_PLAN', targetType: 'plan', targetId: id, targetName: existing['name']?.toString(),
-        details: data, ipAddress: _clientIp(req),
+        superAdminId: saId,
+        superAdminEmail: saEmail,
+        action: 'UPDATE_PLAN',
+        targetType: 'plan',
+        targetId: id,
+        targetName: existing['name']?.toString(),
+        details: data,
+        ipAddress: _clientIp(req),
       );
       return ApiResponse.success(data: await _repo.getPlanById(id), message: 'Plan updated').toShelfResponse();
     } catch (e, st) {

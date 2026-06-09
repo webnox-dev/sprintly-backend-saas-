@@ -139,24 +139,32 @@ class AppRouter {
     _router.mount('/api/', _employeeDocumentRoutes.router.call);
 
     // Mount leave tracker routes (leaves, permissions, WFH)
-    final leaveTrackerHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('leave_tracker'))
-        .addHandler(_leaveRoutes.router.call);
+    final leaveTrackerHandler = _guardFeature(
+      'leave_tracker',
+      ['leave'],
+      _leaveRoutes.router.call,
+    );
     _router.mount('/api/', leaveTrackerHandler);
 
-    final permissionHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('leave_tracker'))
-        .addHandler(_permissionRoutes.router.call);
+    final permissionHandler = _guardFeature(
+      'leave_tracker',
+      ['permissions'],
+      _permissionRoutes.router.call,
+    );
     _router.mount('/api/', permissionHandler);
 
-    final wfhHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('wfh_requests'))
-        .addHandler(_wfhRoutes.router.call);
+    final wfhHandler = _guardFeature(
+      'wfh_requests',
+      ['wfh'],
+      _wfhRoutes.router.call,
+    );
     _router.mount('/api/', wfhHandler);
 
-    final leavePolicyHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('leave_tracker'))
-        .addHandler(_leavePolicyRoutes.router.call);
+    final leavePolicyHandler = _guardFeature(
+      'leave_tracker',
+      ['leave-policy'],
+      _leavePolicyRoutes.router.call,
+    );
     _router.mount('/api/', leavePolicyHandler);
 
     // Mount file upload routes
@@ -184,9 +192,11 @@ class AppRouter {
     _router.mount('/api/', _officeLocationRoutes.router.call);
 
     // Mount TeamSync chat routes (includes WebSocket endpoint)
-    final teamSyncHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('team_sync_chat'))
-        .addHandler(_chatRoutes.router.call);
+    final teamSyncHandler = _guardFeature(
+      'team_sync_chat',
+      ['chat'],
+      _chatRoutes.router.call,
+    );
     _router.mount('/api/', teamSyncHandler);
 
     // Mount report routes (daily reports)
@@ -202,9 +212,11 @@ class AppRouter {
     _router.mount('/api/home', _homeRoutes.router.call);
 
     // Mount face recognition routes (biometric kiosk)
-    final faceRecognitionHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('face_recognition'))
-        .addHandler(_faceRoutes.router.call);
+    final faceRecognitionHandler = _guardFeature(
+      'face_recognition',
+      ['face'],
+      _faceRoutes.router.call,
+    );
     _router.mount('/api/', faceRecognitionHandler);
 
     // Mount employee tracker routes (admin employee tracking)
@@ -226,18 +238,22 @@ class AppRouter {
     _router.mount('/api/settings/', _settingsRoutes.router.call);
 
     // Mount AI Chat routes (LLM-powered assistant)
-    final aiChatHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('ai_assistant'))
-        .addHandler(_aiRoutes.router.call);
+    final aiChatHandler = _guardFeature(
+      'ai_assistant',
+      ['ai'],
+      _aiRoutes.router.call,
+    );
     _router.mount('/api/', aiChatHandler);
 
     // Mount Calendar Meeting routes (scheduling, venue, participants)
     _router.mount('/api/', _calendarMeetingRoutes.router.call);
 
     // Mount Salary Calculation routes (HRMS)
-    final salaryHandler = Pipeline()
-        .addMiddleware(FeatureMiddleware.requireFeature('salary_module'))
-        .addHandler(_salaryRoutes.router.call);
+    final salaryHandler = _guardFeature(
+      'salary_module',
+      ['salary-ranges'],
+      _salaryRoutes.router.call,
+    );
     _router.mount('/api/', salaryHandler);
 
     // Mount Letter Template routes
@@ -259,6 +275,19 @@ class AppRouter {
     _router.get('/', _root);
 
     return _router;
+  }
+
+  /// Helper to guard a handler with feature checks only for specific path prefixes
+  Handler _guardFeature(String featureName, List<String> pathPrefixes, Handler handler) {
+    final featureMiddleware = FeatureMiddleware.requireFeature(featureName);
+    return (Request request) {
+      final path = request.url.path;
+      final shouldGuard = pathPrefixes.any((prefix) => path == prefix || path.startsWith('$prefix/'));
+      if (shouldGuard) {
+        return featureMiddleware(handler)(request);
+      }
+      return handler(request);
+    };
   }
 
   /// Health check endpoint

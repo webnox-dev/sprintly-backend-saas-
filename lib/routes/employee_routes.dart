@@ -6,6 +6,8 @@ import '../core/response/api_response.dart';
 import '../core/exceptions/app_exception.dart';
 import '../core/utils/logger.dart';
 import '../config/app_config.dart';
+import '../domain/models/employee.dart';
+import '../data/repositories/organization_repository.dart';
 
 
 /// Employee routes handler
@@ -134,7 +136,8 @@ class EmployeeRoutes {
   Future<Response> _getEmployeeById(Request request, String id) async {
     try {
       final employee = await _service.getEmployeeById(id);
-      return ApiResponse.success(data: employee.toJson()).toShelfResponse();
+      final responseData = await _appendPlanFeatures(employee);
+      return ApiResponse.success(data: responseData).toShelfResponse();
     } on NotFoundException {
       return ApiResponse.error(
         code: 'NOT_FOUND',
@@ -171,7 +174,8 @@ class EmployeeRoutes {
       }
 
       final employee = await _service.getEmployeeById(employeeId);
-      return ApiResponse.success(data: employee.toJson(), message: 'Employee details fetched successfully').toShelfResponse();
+      final responseData = await _appendPlanFeatures(employee);
+      return ApiResponse.success(data: responseData, message: 'Employee details fetched successfully').toShelfResponse();
     } on NotFoundException {
       return ApiResponse.error(
         code: 'NOT_FOUND',
@@ -620,6 +624,21 @@ class EmployeeRoutes {
     
     // Use trim() to avoid issues with trailing spaces in headers
     return apiKey.trim() == expectedKey.trim();
+  }
+
+  Future<Map<String, dynamic>> _appendPlanFeatures(Employee employee) async {
+    final responseData = employee.toJson();
+    if (employee.organizationId != null) {
+      final orgRepository = OrganizationRepository();
+      final org = await orgRepository.getById(employee.organizationId!);
+      if (org != null && org['plan_features'] != null) {
+        try {
+          final planFeatures = jsonDecode(org['plan_features'] as String) as Map<String, dynamic>;
+          responseData['plan_features'] = planFeatures;
+        } catch (_) {}
+      }
+    }
+    return responseData;
   }
 
   /// Return unauthorized response for secret key failure

@@ -245,6 +245,21 @@ class ChatWebSocketHandler {
         case 'update_presence':
           await _handleUpdatePresence(client, message);
           break;
+        case 'chess_challenge':
+          await _handleChessChallenge(client, message);
+          break;
+        case 'chess_challenge_accept':
+          await _handleChessChallengeAccept(client, message);
+          break;
+        case 'chess_challenge_decline':
+          await _handleChessChallengeDecline(client, message);
+          break;
+        case 'chess_move':
+          await _handleChessMove(client, message);
+          break;
+        case 'chess_game_over':
+          await _handleChessGameOver(client, message);
+          break;
         case 'ping':
           client.channel.sink.add(jsonEncode({'type': 'pong'}));
           break;
@@ -1134,4 +1149,147 @@ class ChatWebSocketHandler {
 
   /// Get online users count
   int get onlineUsersCount => _clients.length;
+
+  ConnectedClient? _findClientByUserId(String userId) {
+    for (final key in _clients.keys) {
+      if (key.startsWith('${userId}_')) {
+        return _clients[key];
+      }
+    }
+    return null;
+  }
+
+  /// Handle chess challenge
+  Future<void> _handleChessChallenge(
+    ConnectedClient client,
+    Map<String, dynamic> data,
+  ) async {
+    final targetId = data['targetId'] as String?;
+    final challengerName = data['challengerName'] as String?;
+
+    if (targetId == null) return;
+
+    final targetClient = _findClientByUserId(targetId);
+    if (targetClient != null) {
+      targetClient.channel.sink.add(
+        jsonEncode({
+          'type': 'chess_challenge_received',
+          'challengerId': client.userId,
+          'challengerType': client.userType,
+          'challengerName': challengerName ?? 'An employee',
+        }),
+      );
+    }
+  }
+
+  /// Handle chess challenge acceptance
+  Future<void> _handleChessChallengeAccept(
+    ConnectedClient client,
+    Map<String, dynamic> data,
+  ) async {
+    final challengerId = data['challengerId'] as String?;
+    final challengerType = data['challengerType'] as String? ?? 'Employee';
+
+    if (challengerId == null) return;
+
+    final challengerKey = '${challengerId}_$challengerType';
+    final challengerClient = _clients[challengerKey];
+
+    if (challengerClient != null) {
+      final gameId = '${challengerId}_${client.userId}';
+
+      // Notify challenger (White)
+      challengerClient.channel.sink.add(
+        jsonEncode({
+          'type': 'chess_game_started',
+          'gameId': gameId,
+          'opponentId': client.userId,
+          'opponentType': client.userType,
+          'color': 'white',
+        }),
+      );
+
+      // Notify acceptor (Black)
+      client.channel.sink.add(
+        jsonEncode({
+          'type': 'chess_game_started',
+          'gameId': gameId,
+          'opponentId': challengerId,
+          'opponentType': challengerType,
+          'color': 'black',
+        }),
+      );
+    }
+  }
+
+  /// Handle chess challenge decline
+  Future<void> _handleChessChallengeDecline(
+    ConnectedClient client,
+    Map<String, dynamic> data,
+  ) async {
+    final challengerId = data['challengerId'] as String?;
+    if (challengerId == null) return;
+
+    final challengerClient = _findClientByUserId(challengerId);
+    if (challengerClient != null) {
+      challengerClient.channel.sink.add(
+        jsonEncode({
+          'type': 'chess_challenge_declined',
+          'opponentId': client.userId,
+        }),
+      );
+    }
+  }
+
+  /// Handle chess move propagation
+  Future<void> _handleChessMove(
+    ConnectedClient client,
+    Map<String, dynamic> data,
+  ) async {
+    final gameId = data['gameId'] as String?;
+    final opponentId = data['opponentId'] as String?;
+    final opponentType = data['opponentType'] as String? ?? 'Employee';
+    final move = data['move'];
+
+    if (opponentId == null || move == null) return;
+
+    final opponentKey = '${opponentId}_$opponentType';
+    final opponentClient = _clients[opponentKey];
+
+    if (opponentClient != null) {
+      opponentClient.channel.sink.add(
+        jsonEncode({
+          'type': 'chess_move_received',
+          'gameId': gameId,
+          'move': move,
+        }),
+      );
+    }
+  }
+
+  /// Handle chess game over propagation
+  Future<void> _handleChessGameOver(
+    ConnectedClient client,
+    Map<String, dynamic> data,
+  ) async {
+    final gameId = data['gameId'] as String?;
+    final opponentId = data['opponentId'] as String?;
+    final opponentType = data['opponentType'] as String? ?? 'Employee';
+    final reason = data['reason'] as String? ?? 'resigned';
+
+    if (opponentId == null) return;
+
+    final opponentKey = '${opponentId}_$opponentType';
+    final opponentClient = _clients[opponentKey];
+
+    if (opponentClient != null) {
+      opponentClient.channel.sink.add(
+        jsonEncode({
+          'type': 'chess_game_over_received',
+          'gameId': gameId,
+          'reason': reason,
+        }),
+      );
+    }
+  }
 }

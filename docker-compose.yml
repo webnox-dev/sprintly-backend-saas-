@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Backend API Service (Dart)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webnox-backend
+    ports:
+      - "4000:8080"
+    networks:
+      - webnox-network
+    depends_on:
+      - webnox_sprintly_postgres_prod
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  webnox_sprintly_postgres_prod:
+    image: postgres:15
+    container_name: webnox_sprintly_postgres_prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: webnox_sprintly
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - webnox-network
+
+  # Admin Frontend (Flutter Web + Nginx)
+  admin-frontend:
+    build:
+      context: ../webnox_sprintly_super_admin
+      dockerfile: Dockerfile
+    container_name: webnox-admin-frontend
+    ports:
+      - "4001:80"
+    networks:
+      - webnox-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Employee Frontend (Flutter Web + Nginx)
+  employee-frontend:
+    build:
+      context: ../webnox-sprintly-employee-frontend-prod
+      dockerfile: Dockerfile
+    container_name: webnox-employee-frontend
+    ports:
+      - "4002:80"
+    networks:
+      - webnox-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  webnox-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

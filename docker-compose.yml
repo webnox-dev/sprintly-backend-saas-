@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Backend API Service (Dart)
   backend:
@@ -32,14 +30,28 @@ services:
     networks:
       - webnox-network
 
-  # Admin Frontend (Flutter Web + Nginx)
-  admin-frontend:
+  # Super Admin Frontend (Flutter Web + Nginx)
+  super-admin-frontend:
     build:
       context: ../webnox_sprintly_super_admin
       dockerfile: Dockerfile
-    container_name: webnox-admin-frontend
+    container_name: webnox-super-admin-frontend
     ports:
       - "4001:80"
+    networks:
+      - webnox-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Company/Org Admin Frontend (Flutter Web + Nginx)
+  admin-frontend:
+    build:
+      context: ../webnox-sprintly-admin-frontend-prod
+      dockerfile: Dockerfile
+    container_name: webnox-admin-frontend
+    ports:
+      - "4003:80"
     networks:
       - webnox-network
     depends_on:

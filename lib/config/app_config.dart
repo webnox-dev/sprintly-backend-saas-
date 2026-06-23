@@ -71,12 +71,12 @@ class AppConfig {
 
   static String get databaseUrlLocal => _getEnv(
     'DATABASE_URL_LOCAL',
-    'postgres://postgres:1234@localhost:5432/webnox_sprintly',
+    'postgres://postgres:1234@192.168.0.36:5436/webnox_sprintly',
   );
 
   static String get databaseUrlLive => _getEnv(
     'DATABASE_URL_LIVE',
-    'postgres://postgres:1234@192.168.0.32:5435/webnox_sprintly',
+    'postgres://postgres:1234@192.168.0.36:5436/webnox_sprintly',
   );
 
   // ---------------------------------------------------------------------------

@@ -6,8 +6,8 @@ Future<void> main() async {
 
   // Connection settings from app_config.dart defaults
   // We'll try the "live" one first since that's what seems to be in use
-  final host = '192.168.0.32';
-  final port = 5435;
+  final host = '192.168.0.36';
+  final port = 5436;
   final database = 'webnox_sprintly';
   final username = 'postgres';
   final password = '1234';
@@ -35,7 +35,7 @@ Future<void> main() async {
       connection = await Connection.open(
         Endpoint(
           host: 'localhost',
-          port: 5435,
+          port: port,
           database: database,
           username: username,
           password: password,

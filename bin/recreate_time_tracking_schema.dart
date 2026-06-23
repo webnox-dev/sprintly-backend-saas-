@@ -8,8 +8,8 @@ Future<void> main() async {
 
   final connection = await Connection.open(
     Endpoint(
-      host: '192.168.0.32',
-      port: 5435,
+      host: '192.168.0.36',
+      port: 5436,
       database: 'webnox_sprintly',
       username: 'postgres',
       password: '1234',

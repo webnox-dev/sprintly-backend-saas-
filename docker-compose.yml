@@ -18,6 +18,7 @@ services:
   # PostgreSQL Database
   webnox_sprintly_postgres_prod:
     image: postgres:15
+    platform: linux/amd64
     container_name: webnox_sprintly_postgres_prod
     restart: unless-stopped
     environment:
